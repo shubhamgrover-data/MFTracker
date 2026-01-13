@@ -1,0 +1,5 @@
+{
+  "name": "FundFlow Tracker",
+  "description": "A financial market tracking application to analyze Mutual Fund portfolio activities, uploading Excel data, and leveraging Gemini for market insights.",
+  "requestFramePermissions": []
+}
