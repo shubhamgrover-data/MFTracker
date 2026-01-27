@@ -1,10 +1,14 @@
+
 import { FundSnapshot, StockHolding, StockMFAnalysis, MutualFundHolding, MFHoldingHistory, StockPriceData, FundPortfolioHolding, FundSearchResult, FundPortfolioData, FundMeta, SectorDistribution, HoldingHistoryItem } from '../types';
+import { StockDataRequestItem, BulkExtractResponse, PollStatusResponse } from '../types/trackingTypes';
+import { generateInsightConfig } from './trackingStorage';
 import { extractStockDataFromHtml } from './geminiService';
 import * as XLSX from 'xlsx';
 
-const PROXY_BASE_URL = "https://app-to-extract-holdings--shubhamgroverda.replit.app/api/extract-data";
+const PROXY_BASE_URL = "https://stockmarketdata.linkpc.net/api/extract-data";
+const BULK_API_URL = "https://stockmarketdata.linkpc.net/api/extractinsight";
 
-interface ProxyOptions {
+export interface ProxyOptions {
   attribute?: string;
   attributeValue?: string;
   tagName?: string;
@@ -15,7 +19,7 @@ interface ProxyOptions {
  * Constructs the URL with query parameters automatically.
  * Handles both JSON and raw text responses.
  */
-const fetchFromProxy = async (targetUrl: string, options: ProxyOptions = {}) => {
+export const fetchFromProxy = async (targetUrl: string, options: ProxyOptions = {}) => {
   const url = new URL(PROXY_BASE_URL);
   url.searchParams.append('url', targetUrl);
   
@@ -31,16 +35,149 @@ const fetchFromProxy = async (targetUrl: string, options: ProxyOptions = {}) => 
   }
 
   const contentType = response.headers.get("content-type");
+  let data;
   if (contentType && contentType.includes("application/json")) {
-    return await response.json();
+    data = await response.json();
   } else {
     // Fallback for raw string/html responses
-    return await response.text();
+    data = await response.text();
+  }
+
+  // Handle multi-attribute response or single attribute unwrapping
+  if (options.attribute && typeof data === 'object' && data !== null && !Array.isArray(data)) {
+      // If asking for multiple attributes (comma-separated), return the whole object
+      if (options.attribute.includes(',')) {
+          return data;
+      }
+      
+      // Backward compatibility: If single attribute request returns keyed object, unwrap it
+      if (Object.prototype.hasOwnProperty.call(data, options.attribute)) {
+          return data[options.attribute];
+      }
+  }
+
+  return data;
+};
+
+// --- Bulk Insight Logic ---
+
+// Helper to get Stock PK and Slug using the optimized multi-attribute fetch
+const getStockMetadata = async (symbol: string): Promise<{ pk: string, slug: string } | null> => {
+  try {
+    const targetUrl = `https://trendlyne.com/equity/${symbol}/stock-page/`;
+    
+    // Fetch both attributes in a single request
+    const data = await fetchFromProxy(targetUrl, { attribute: 'data-stock-pk,data-stockslugname' });
+
+    let pk = data?.['data-stock-pk'];
+    let slug = data?.['data-stockslugname'];
+
+    // Handle case where proxy might wrap result differently (fallback)
+    if (!pk || !slug) {
+         // Fallback to array if response is array
+         if (Array.isArray(data)) {
+             // Assuming order or structure if array is returned (less reliable)
+             console.warn("Received array for metadata, structure might differ");
+         }
+    }
+
+    if (pk && slug) {
+        return { pk: String(pk), slug: String(slug) };
+    }
+    
+    // Retry with individual fetches if bulk failed (Fallback mechanism)
+    console.warn(`Bulk metadata fetch unclear for ${symbol}, retrying individually`);
+    const [pkRes, slugRes] = await Promise.all([
+        fetchFromProxy(targetUrl, { attribute: 'data-stock-pk' }),
+        fetchFromProxy(targetUrl, { attribute: 'data-stockslugname' })
+    ]);
+    
+    // Extract raw value if it comes in { rawValue: ... } format
+    pk = typeof pkRes === 'object' && pkRes ? pkRes.rawValue || pkRes : pkRes;
+    slug = typeof slugRes === 'object' && slugRes ? slugRes.rawValue || slugRes : slugRes;
+
+    if (pk && slug) {
+        return { pk: String(pk), slug: String(slug) };
+    }
+
+    return null;
+  } catch (e) {
+    console.error(`Failed to fetch metadata for ${symbol}`, e);
+    return null;
   }
 };
 
+export const initiateBulkInsightExtraction = async (symbols: string[], invalidateCache: boolean = false): Promise<BulkExtractResponse | null> => {
+  try {
+    // 1. Resolve Metadata for all stocks
+    const requestPayload: StockDataRequestItem[] = [];
+    //console.log(symbols);
+    // Fetch metadata for all symbols in parallel
+    const metadataResults = await Promise.all(
+        symbols.map(async (sym) => {
+            const meta = await getStockMetadata(sym);
+            if (meta) return { symbol: sym, ...meta };
+            return null;
+        })
+    );
 
+    // 2. Build Payload
+    metadataResults.forEach(item => {
+        if (item) {
+            requestPayload.push({
+                Symbol: item.symbol,
+                data: generateInsightConfig(item.symbol, item.pk, item.slug)
+            });
+        }
+    });
 
+    if (requestPayload.length === 0) return null;
+
+    // 3. Send POST Request
+    const url = new URL(BULK_API_URL);
+    url.searchParams.append('BulkStocks', 'true');
+    url.searchParams.append('invalidateCache', String(invalidateCache));
+    url.searchParams.append('mode','standalone'); 
+
+    const response = await fetch(url.toString(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestPayload)
+    });
+
+    if (!response.ok) throw new Error("Bulk API initiation failed");
+    return await response.json();
+
+  } catch (e) {
+    console.error("Bulk extraction init error", e);
+    return null;
+  }
+};
+
+export const pollBulkInsightStatus = async (requestId: string): Promise<PollStatusResponse | null> => {
+    try {
+        const url = `${BULK_API_URL}/status/${requestId}`;
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        return await response.json();
+    } catch (e) {
+        console.error("Polling error", e);
+        return null;
+    }
+};
+
+// Standalone function as requested, accepting multiple attributes
+export const fetchMultipleAttributes = async (targetUrl: string, attributes: string[]) => {
+    const url = new URL(PROXY_BASE_URL);
+    url.searchParams.append('url', targetUrl);
+    url.searchParams.append('attribute', attributes.join(','));
+    
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+    }
+    return await response.json();
+};
 
 
 // Excel Parsing Logic
@@ -205,6 +342,49 @@ export const searchFundsFromMasterList = async (query: string): Promise<FundSear
   const lowerQ = query.toLowerCase();
   // Filter by name and return top 20
   return fundListCache.filter(f => f.name.toLowerCase().includes(lowerQ)).slice(0, 20);
+};
+
+// --- Master Index List Fetcher ---
+export const fetchMasterIndicesList = async (): Promise<Array<{ name: string; category: string }>> => {
+    try {
+        const url = "https://www.nseindia.com/api/equity-master";
+        const data = await fetchFromProxy(url);
+        
+        let jsonData = data;
+        if (typeof data === 'string') {
+            try {
+                jsonData = JSON.parse(data);
+            } catch (e) {
+                console.error("Failed to parse Indices JSON", e);
+                return [];
+            }
+        }
+
+        // Flatten all categories except "Others"
+        const allowedCategories = [
+            "Indices Eligible In Derivatives", 
+            "Broad Market Indices", 
+            "Sectoral Market Indices", 
+            "Thematic Market Indices", 
+            "Strategy Market Indices"
+        ];
+        
+        let allIndices: Array<{ name: string; category: string }> = [];
+        
+        allowedCategories.forEach(cat => {
+            if (jsonData[cat] && Array.isArray(jsonData[cat])) {
+                jsonData[cat].forEach((indexName: string) => {
+                    allIndices.push({ name: indexName, category: cat });
+                });
+            }
+        });
+
+        return allIndices;
+
+    } catch (e) {
+        console.error("Error fetching Master Indices List", e);
+        return [];
+    }
 };
 
 
@@ -413,7 +593,10 @@ export const fetchMutualFundHoldingsForStock = async (symbol: string): Promise<S
       const mfTotal = item["MF_Total:"];
       const fundName = mfTotal?.text || "Unknown Fund";
       const fundUrl = mfTotal?.href || "";
-
+      const matches = fundUrl.match(/\d+/g);
+      const mfPk = matches ? Number(matches[matches.length - 1]) : null;
+      const historyUrl = `https://trendlyne.com/mutual-fund/holding-history/${mfPk}/${stockPk}`;
+      console.log(historyUrl);
       // Extract dynamic month keys
       const history: MFHoldingHistory[] = [];
       const keys = Object.keys(item);
@@ -453,7 +636,8 @@ export const fetchMutualFundHoldingsForStock = async (symbol: string): Promise<S
         fundName,
         fundUrl,
         latest: historyArr[0] || null,
-        history: historyArr
+        history: historyArr,
+        historyUrl
       };
     });
 
@@ -481,5 +665,46 @@ export const fetchMutualFundHoldingsForStock = async (symbol: string): Promise<S
   } catch (error) {
     console.error("Error fetching MF Holdings:", error);
     return null;
+  }
+};
+
+/**
+ * Fetches stock symbols from NSE API for a given index.
+ * Uses the proxy as NSE blocks direct client calls.
+ */
+export const fetchIndexConstituents = async (indexName: string): Promise<string[]> => {
+  try {
+    const encodedIndex = encodeURIComponent(indexName);
+    const nseUrl = `https://www.nseindia.com/api/equity-stockIndices?index=${encodedIndex}`;
+    
+ 
+    
+
+    // Try fetching via proxy
+    const data = await fetchFromProxy(nseUrl);
+    
+       // Fallback static list for reliability in demo environment if proxy fails
+if (indexName === "NIFTY 50" && !data) {
+        return [
+            "RELIANCE", "TCS", "HDFCBANK", "INFY", "BHARTIARTL", "ICICIBANK", "ITC", 
+            "SBIN", "LICI", "HINDUNILVR", "TATAMOTORS", "LT", "HCLTECH", "AXISBANK", 
+            "ASIANPAINT", "MARUTI", "SUNPHARMA", "TITAN", "BAJFINANCE", "ULTRACEMCO",
+            "WIPRO", "ADANIENT", "ONGC", "NTPC", "POWERGRID", "TATASTEEL", "JSWSTEEL",
+            "COALINDIA", "ADANIPORTS", "M&M"
+        ];
+    }
+
+    if (data && typeof data === 'object' && Array.isArray(data.data)) {
+        return data.data
+            .filter((item: any) => item.priority !== 1 && item.symbol !== indexName)
+            .map((item: any) => item.symbol)
+            .filter((sym: string) => sym);
+    }
+    
+    return [];
+
+  } catch (error) {
+    console.error(`Failed to fetch index constituents for ${indexName}:`, error);
+    return [];
   }
 };

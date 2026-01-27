@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, PieChart, TrendingUp, Menu, X, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Cog , LayoutDashboard, PieChart, TrendingUp, Menu, X, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -9,12 +9,13 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
 
   const navItems = [
-    { id: 'DASHBOARD', label: 'Market Overview', icon: <LayoutDashboard size={20} /> },
-    { id: 'FUND_DETAIL', label: 'Fund Tracker', icon: <PieChart size={20} /> },
+    { id: 'DASHBOARD', label: 'Tracking Board', icon: <LayoutDashboard size={20} /> },
+    { id: 'FUND_DETAIL', label: 'MF Search', icon: <PieChart size={20} /> },
     { id: 'STOCK_SEARCH', label: 'Stock Search', icon: <Search size={20} /> },
+    { id: 'CONFIGURATION', label: 'Configure', icon: <Cog size={20} /> },
   ];
 
   return (

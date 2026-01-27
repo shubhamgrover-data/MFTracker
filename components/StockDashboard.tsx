@@ -1,8 +1,10 @@
+
 import React, { useEffect, useState, useMemo } from 'react';
-import { ArrowLeft, ExternalLink, TrendingUp, TrendingDown, Layers, Loader2, Search, Filter, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, BarChart2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, ExternalLink,History, TrendingUp, TrendingDown, Layers, Loader2, Search, Filter, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, BarChart2, RefreshCw } from 'lucide-react';
 import { StockPriceData, StockMFAnalysis, MutualFundHolding, FundSearchResult } from '../types';
 import { fetchLiveStockPrice, fetchMutualFundHoldingsForStock } from '../services/dataService';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import StockDeepDive from './StockDeepDive';
 
 interface StockDashboardProps {
   symbol: string;
@@ -150,7 +152,7 @@ const StockDashboard: React.FC<StockDashboardProps> = ({ symbol, stockName, onBa
       </div>
 
       {/* Top Section: Price & Graph */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Price Card */}
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col justify-between">
           <div>
@@ -246,9 +248,10 @@ const StockDashboard: React.FC<StockDashboardProps> = ({ symbol, stockName, onBa
              </p>
           </div>
         </div>
-
-        
       </div>
+      
+      {/* Deep Dive Analysis Component */}
+      <StockDeepDive symbol={symbol} stockName={stockName} />
 
       {/* Holdings Table Section */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
@@ -354,6 +357,17 @@ const StockDashboard: React.FC<StockDashboardProps> = ({ symbol, stockName, onBa
                   <tr key={idx} className="bg-white hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 border-r border-gray-100 sticky left-0 bg-white group-hover:bg-gray-50 z-10">
                       <div className="flex items-center gap-2 group/link">
+                        {holding.historyUrl && (
+                           <a 
+                             href={holding.historyUrl} 
+                             target="_blank" 
+                             rel="noreferrer"
+                             className="text-gray-300 hover:text-indigo-500 transition-colors opacity-0 group-hover/link:opacity-100"
+                             title="View on Trendlyne"
+                           >
+                             <History size={14} />
+                           </a>
+                        )}
                         <button 
                           onClick={() => onSelectFund({ name: holding.fundName, url: holding.fundUrl })}
                           className="font-medium text-indigo-600 hover:text-indigo-800 text-left transition-colors line-clamp-2"

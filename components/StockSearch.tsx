@@ -1,6 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
-import { Search, TrendingUp, ArrowRight, Loader2 } from 'lucide-react';
+import { Search, TrendingUp, ArrowRight, Loader2, Plus, Check } from 'lucide-react';
 import { searchStocksFromMasterList } from '../services/dataService';
+import { addTrackedItem, isTracked } from '../services/trackingStorage';
 
 interface StockSearchProps {
   onSelectStock: (symbol: string, name: string) => void;
@@ -45,6 +47,8 @@ const StockSearch: React.FC<StockSearchProps> = ({ onSelectStock }) => {
   const [suggestions, setSuggestions] = useState<Array<{ symbol: string; name: string }>>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  // Helper state to force re-render when tracking changes
+  const [tick, setTick] = useState(0);
 
   // Debounce search input
   useEffect(() => {
@@ -65,10 +69,34 @@ const StockSearch: React.FC<StockSearchProps> = ({ onSelectStock }) => {
         setShowDropdown(false);
         setSuggestions([]);
       }
-    }, 300); // 300ms delay for local filtering is usually enough
+    }, 300);
 
     return () => clearTimeout(timeoutId);
   }, [query]);
+
+  const handleTrack = (e: React.MouseEvent, symbol: string, name: string) => {
+    e.stopPropagation();
+    addTrackedItem({ id: symbol, name, symbol, type: 'STOCK' });
+    setTick(tick + 1); // Trigger re-render to update icon
+  };
+
+  const TrackButton = ({ symbol, name }: { symbol: string, name: string }) => {
+    const tracked = isTracked(symbol, 'STOCK');
+    return (
+      <button
+        onClick={(e) => handleTrack(e, symbol, name)}
+        className={`p-2 rounded-lg transition-all ${
+           tracked 
+           ? 'bg-green-50 text-green-600 cursor-default' 
+           : 'bg-gray-100 text-gray-400 hover:bg-indigo-600 hover:text-white'
+        }`}
+        title={tracked ? "Added to Watchlist" : "Add to Watchlist"}
+        disabled={tracked}
+      >
+        {tracked ? <Check size={16} /> : <Plus size={16} />}
+      </button>
+    );
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in relative">
@@ -107,10 +135,10 @@ const StockSearch: React.FC<StockSearchProps> = ({ onSelectStock }) => {
               ) : suggestions.length > 0 ? (
                 <div className="divide-y divide-gray-50">
                   {suggestions.map((stock, idx) => (
-                    <button
+                    <div
                       key={`${stock.symbol}-${idx}`}
                       onClick={() => onSelectStock(stock.symbol, stock.name)}
-                      className="w-full flex items-center justify-between p-3 hover:bg-indigo-50 transition-colors text-left group"
+                      className="w-full flex items-center justify-between p-3 hover:bg-indigo-50 transition-colors text-left group cursor-pointer"
                     >
                       <div className="flex items-center gap-3">
                          <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">
@@ -121,8 +149,14 @@ const StockSearch: React.FC<StockSearchProps> = ({ onSelectStock }) => {
                             <div className="text-xs text-gray-500 font-mono">{stock.symbol}</div>
                          </div>
                       </div>
-                      <ArrowRight className="text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity" size={16} />
-                    </button>
+                      
+                      <div className="flex items-center gap-2">
+                        <TrackButton symbol={stock.symbol} name={stock.name} />
+                        <div className="p-2 text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <ArrowRight size={16} />
+                        </div>
+                      </div>
+                    </div>
                   ))}
                 </div>
               ) : (
@@ -146,10 +180,10 @@ const StockSearch: React.FC<StockSearchProps> = ({ onSelectStock }) => {
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 divide-y md:divide-y-0 gap-px bg-gray-100">
             {POPULAR_STOCKS.map((stock) => (
-              <button 
+              <div 
                 key={stock.symbol}
                 onClick={() => onSelectStock(stock.symbol, stock.name)}
-                className="bg-white p-4 hover:bg-gray-50 transition-colors text-left flex items-center justify-between group"
+                className="bg-white p-4 hover:bg-gray-50 transition-colors text-left flex items-center justify-between group cursor-pointer"
               >
                 <div className="flex items-center gap-3">
                    <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-xs group-hover:bg-indigo-100 group-hover:text-indigo-600 transition-colors">
@@ -160,7 +194,8 @@ const StockSearch: React.FC<StockSearchProps> = ({ onSelectStock }) => {
                       <div className="text-xs text-gray-500 font-mono">{stock.symbol}</div>
                    </div>
                 </div>
-              </button>
+                <TrackButton symbol={stock.symbol} name={stock.name} />
+              </div>
             ))}
           </div>
        </div>

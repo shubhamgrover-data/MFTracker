@@ -1,59 +1,25 @@
+
 import React, { useState } from 'react';
 import Layout from './components/Layout';
 import FundView from './components/FundView';
 import StockDashboard from './components/StockDashboard';
 import StockSearch from './components/StockSearch';
+import TrackingDashboard from './components/TrackingDashboard/TrackingDashboard';
+import ConfigurationView from './components/Configuration/ConfigurationView';
 import { FundSnapshot, FundSearchResult } from './types';
-
-
-// Simple Dashboard Overview Component
-const DashboardOverview: React.FC = () => (
-  <div className="space-y-6">
-    <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl p-8 text-white shadow-lg">
-      <h1 className="text-3xl font-bold mb-2">Market Intelligence</h1>
-      <p className="opacity-90 max-w-2xl">
-        Track institutional money flow in real-time. Analyze mutual fund portfolios, detect buying trends, and get live insights powered by Gemini.
-      </p>
-    </div>
-    
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-         <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wider mb-2">Top Sector</h3>
-         <p className="text-2xl font-bold text-gray-900">Banking & Finance</p>
-         <div className="mt-2 text-green-600 text-sm font-medium flex items-center gap-1">
-           <span>+2.4% inflow</span>
-         </div>
-      </div>
-       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-         <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wider mb-2">Top Stock</h3>
-         <p className="text-2xl font-bold text-gray-900">HDFC Bank</p>
-         <div className="mt-2 text-indigo-600 text-sm font-medium flex items-center gap-1">
-           <span>Held by 12 Funds</span>
-         </div>
-      </div>
-       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-         <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wider mb-2">Market Sentiment</h3>
-         <p className="text-2xl font-bold text-gray-900">Bullish</p>
-         <div className="mt-2 text-gray-400 text-sm">
-           Based on monthly accumulation
-         </div>
-      </div>
-    </div>
-
-    <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800 text-sm">
-      <strong>Note:</strong> This application uses mock data for demonstration. Upload actual fund portfolios (Excel) in the 'Fund Tracker' tab to see real analysis. 
-      Live prices are fetched via Gemini Grounding (Google Search).
-    </div>
-  </div>
-);
+import { InsightResultItem } from './types/trackingTypes';
 
 function App() {
   const [activeTab, setActiveTab] = useState<string>('DASHBOARD');
   const [funds, setFunds] = useState<FundSnapshot[]>();
   const [selectedStock, setSelectedStock] = useState<{symbol: string, name: string} | null>(null);
-  
-  // Update state to hold full object or null
   const [selectedFund, setSelectedFund] = useState<FundSearchResult | null>(null);
+
+  // --- Lifted State for Bulk Insights (Deep Dive) ---
+  const [bulkResults, setBulkResults] = useState<Record<string, InsightResultItem[]>>({});
+  const [bulkStatus, setBulkStatus] = useState<'idle' | 'initializing' | 'polling' | 'completed' | 'error'>('idle');
+  const [bulkProgress, setBulkProgress] = useState({ completed: 0, total: 0 });
+  const [requestId, setRequestId] = useState<string | null>(null);
 
   // Handle Navigation
   const handleTabChange = (tab: string) => {
@@ -65,9 +31,8 @@ function App() {
 
   const handleFundDataAdded = (newData: FundSnapshot) => {
     setFunds(prev => {
-       // Avoid duplicates based on ID
-       if (prev.find(f => f.id === newData.id)) return prev;
-       return [...prev, newData];
+       if (prev && prev.find(f => f.id === newData.id)) return prev;
+       return prev ? [...prev, newData] : [newData];
     });
   };
 
@@ -80,12 +45,6 @@ function App() {
     console.log("Navigating to fund:", fund.name);
     setSelectedFund(fund);
     setActiveTab('FUND_DETAIL');
-  };
-
-  // Handler for search component (name + url)
-  const handleSelectFundFromSearch = (fund: FundSearchResult) => {
-     setSelectedFund(fund);
-     setActiveTab('FUND_DETAIL');
   };
 
   const renderContent = () => {
@@ -102,11 +61,25 @@ function App() {
 
     switch (activeTab) {
       case 'DASHBOARD':
-        return <DashboardOverview />;
+        return (
+          <TrackingDashboard 
+            onSelectStock={handleSelectStock}
+            onSelectFund={handleSelectFundFromDashboard}
+            // Pass lifted state
+            bulkResults={bulkResults}
+            setBulkResults={setBulkResults}
+            bulkStatus={bulkStatus}
+            setBulkStatus={setBulkStatus}
+            bulkProgress={bulkProgress}
+            setBulkProgress={setBulkProgress}
+            requestId={requestId}
+            setRequestId={setRequestId}
+          />
+        );
       case 'FUND_DETAIL':
         return (
           <FundView 
-            funds={funds} 
+            funds={funds || []} 
             onFundDataAdded={handleFundDataAdded} 
             onSelectStock={handleSelectStock}
             initialSelectedFund={selectedFund}
@@ -116,8 +89,28 @@ function App() {
         return (
           <StockSearch onSelectStock={handleSelectStock} />
         );
+      case 'CONFIGURATION':
+        return (
+          <ConfigurationView 
+             onSelectStock={handleSelectStock}
+             onSelectFund={handleSelectFundFromDashboard}
+          />
+        );
       default:
-        return <DashboardOverview />;
+        return (
+          <TrackingDashboard 
+            onSelectStock={handleSelectStock}
+            onSelectFund={handleSelectFundFromDashboard}
+            bulkResults={bulkResults}
+            setBulkResults={setBulkResults}
+            bulkStatus={bulkStatus}
+            setBulkStatus={setBulkStatus}
+            bulkProgress={bulkProgress}
+            setBulkProgress={setBulkProgress}
+            requestId={requestId}
+            setRequestId={setRequestId}
+          />
+        );
     }
   };
 

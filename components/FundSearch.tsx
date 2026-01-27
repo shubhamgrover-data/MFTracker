@@ -1,20 +1,17 @@
+
 import React, { useState, useEffect } from 'react';
-import { Search, PieChart, ArrowRight, Loader2, Building2 } from 'lucide-react';
+import { Search, PieChart, ArrowRight, Loader2, Building2, Plus, Check } from 'lucide-react';
 import { searchFundsFromMasterList } from '../services/dataService';
+import { addTrackedItem, isTracked } from '../services/trackingStorage';
 import { FundSearchResult } from '../types';
 
 interface FundSearchProps {
   onSelectFund: (fund: FundSearchResult) => void;
 }
 
-// Keep popular funds static or fetch them? For now, static is faster for UI, but could be dynamic.
-// Using a static subset for the "Popular" section to avoid loading delay on mount if possible, 
-// but clicking them should probably do a lookup or just pass the name if we had URLs.
-// Since we need URLs for them to work, let's just search for them or make them disabled/mock for now if URLs are missing.
-// Actually, better to remove them or search for them. Let's keep them as quick search buttons that trigger the search.
 const POPULAR_SEARCH_TERMS = [
-  "SBI Bluechip",
-  "HDFC Mid-Cap",
+  "SBI Large Cap",
+  "HDFC Mid Cap",
   "Parag Parikh Flexi",
   "Nippon India Small",
   "Axis Small Cap",
@@ -26,6 +23,7 @@ const FundSearch: React.FC<FundSearchProps> = ({ onSelectFund }) => {
   const [suggestions, setSuggestions] = useState<FundSearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     const timeoutId = setTimeout(async () => {
@@ -50,9 +48,40 @@ const FundSearch: React.FC<FundSearchProps> = ({ onSelectFund }) => {
     return () => clearTimeout(timeoutId);
   }, [query]);
 
-  // Helper to trigger search from popular tags
   const handlePopularClick = (term: string) => {
     setQuery(term);
+  };
+
+  const handleTrack = (e: React.MouseEvent, fund: FundSearchResult) => {
+    e.stopPropagation();
+    // Use PK if available, otherwise name as ID
+    const id = fund.pk ? String(fund.pk) : fund.name;
+    addTrackedItem({ 
+      id, 
+      name: fund.name, 
+      type: 'MF',
+      url: fund.url 
+    });
+    setTick(tick + 1);
+  };
+
+  const TrackButton = ({ fund }: { fund: FundSearchResult }) => {
+    const id = fund.pk ? String(fund.pk) : fund.name;
+    const tracked = isTracked(id, 'MF');
+    return (
+      <button
+        onClick={(e) => handleTrack(e, fund)}
+        className={`p-2 rounded-lg transition-all ${
+           tracked 
+           ? 'bg-green-50 text-green-600 cursor-default' 
+           : 'bg-gray-100 text-gray-400 hover:bg-indigo-600 hover:text-white'
+        }`}
+        title={tracked ? "Added to Watchlist" : "Add to Watchlist"}
+        disabled={tracked}
+      >
+        {tracked ? <Check size={16} /> : <Plus size={16} />}
+      </button>
+    );
   };
 
   return (
@@ -90,10 +119,10 @@ const FundSearch: React.FC<FundSearchProps> = ({ onSelectFund }) => {
             ) : suggestions.length > 0 ? (
               <div className="divide-y divide-gray-50">
                 {suggestions.map((fund, idx) => (
-                  <button
+                  <div
                     key={`${fund.name}-${idx}`}
                     onClick={() => onSelectFund(fund)}
-                    className="w-full flex items-center justify-between p-3 hover:bg-indigo-50 transition-colors text-left group"
+                    className="w-full flex items-center justify-between p-3 hover:bg-indigo-50 transition-colors text-left group cursor-pointer"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
@@ -101,12 +130,17 @@ const FundSearch: React.FC<FundSearchProps> = ({ onSelectFund }) => {
                       </div>
                       <div>
                         <div className="font-medium text-gray-900 text-sm line-clamp-1">{fund.name}</div>
-                        {/* If type isn't available from API, show default text */}
                         <div className="text-xs text-gray-500">{fund.type || "Mutual Fund"}</div> 
                       </div>
                     </div>
-                    <ArrowRight className="text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity" size={16} />
-                  </button>
+                    
+                    <div className="flex items-center gap-2">
+                      <TrackButton fund={fund} />
+                      <div className="p-2 text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <ArrowRight size={16} />
+                      </div>
+                    </div>
+                  </div>
                 ))}
               </div>
             ) : (

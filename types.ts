@@ -44,6 +44,7 @@ export interface MutualFundHolding {
   fundUrl: string;
   latest: MFHoldingHistory | null;
   history: MFHoldingHistory[];
+  historyUrl?: string;
 }
 
 export interface StockMFAnalysis {
@@ -51,6 +52,7 @@ export interface StockMFAnalysis {
   holdings: MutualFundHolding[];
   aggregateHistory: { month: string; totalShares: number }[];
   sourceUrl?: string; // URL to the source data (Trendlyne)
+  
 }
 
 // --- New Types for Fund Portfolio Feature ---
