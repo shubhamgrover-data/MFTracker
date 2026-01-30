@@ -71,7 +71,7 @@ const StockDashboard: React.FC<StockDashboardProps> = ({ symbol, stockName, onBa
   // Determine available months from data
   const monthColumns = useMemo(() => {
     if (!mfData || mfData.holdings.length === 0) return [];
-    const allMonths = Array.from(new Set(mfData.holdings.flatMap(h => h.history.map(hist => hist.month))));
+    const allMonths = Array.from(new Set(mfData.holdings.flatMap(h => h.history.map(hist => hist.month)))) as string[];
     // Sort descending by date
     const sortedMonths = allMonths.sort((a, b) => new Date(b).getTime() - new Date(a).getTime()).slice(0, 3);
     

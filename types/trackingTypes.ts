@@ -84,3 +84,50 @@ export interface ChatMessage {
   text: string;
   timestamp: number;
 }
+
+// State for Intelligent Tracking Persistence
+export interface IntelligentState {
+    selectedIndex: string;
+    symbols: string[];
+    filter: string;
+    page: number;
+    pageSize: number;
+}
+
+// Market Overview Data Structure
+export interface MarketIndexData {
+    index: string;
+    last: number;
+    variation: number;
+    percentChange: number;
+    open: number;
+    high: number;
+    low: number;
+    previousClose: number;
+    yearHigh: number;
+    yearLow: number;
+    pe: string;
+    pb: string;
+    dy: string;
+    declines: string;
+    advances: string;
+    unchanged: string;
+    perChange365d: number;
+    perChange30d: number;
+    oneWeekAgoVal?: number;
+    oneMonthAgoVal?: number;
+    oneYearAgoVal?: number;
+}
+
+// FII DII Data Types
+export interface FiiDiiMetric {
+    period: string; // "Daily", "1 Week", "2 Weeks", "30 Days"
+    fiiNet: number;
+    diiNet: number;
+}
+
+export interface FiiDiiData {
+    latest: FiiDiiMetric | null;
+    history: FiiDiiMetric[];
+    lastUpdated: number;
+}

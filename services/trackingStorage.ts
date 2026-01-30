@@ -110,6 +110,7 @@ export const EXTRA_REQUEST:InsightsConfig[] = [ { updateType:"Volume",
   }];
 
 const STORAGE_KEY = 'fundflow_tracked_items';
+const IGNORED_KEY = 'fundflow_ignored_items';
 const EVENT_KEY = 'fundflow_tracking_update';
 const INDICES_KEY = 'fundflow_tracked_indices';
 
@@ -119,7 +120,11 @@ const DEFAULT_ITEMS: TrackedItem[] = [
   { id: 'TATAMOTORS', name: 'Tata Motors Ltd', symbol: 'TATAMOTORS', type: 'STOCK' },
 ];
 
-const DEFAULT_INDICES = ["NIFTY 50", "NIFTY BANK", "NIFTY IT", "NIFTY AUTO", "NIFTY PHARMA"];
+const DEFAULT_IGNORED_ITEMS: string[] = [
+  "ADANIENSOL", "ADANIGREEN", "ADANITRANS", "PAYTM", "ZOMATO", "NYKAA", "POLICYBZR"
+];
+
+const DEFAULT_INDICES = ["NIFTY NEXT 50","NIFTY 50", "NIFTY BANK", "NIFTY IT"];
 
 export const getTrackedItems = (): TrackedItem[] => {
   try {
@@ -159,6 +164,44 @@ export const removeTrackedItem = (id: string, type: EntityType) => {
 export const isTracked = (id: string, type: EntityType): boolean => {
   const items = getTrackedItems();
   return !!items.find(i => i.id === id && i.type === type);
+};
+
+// --- Ignore List Logic ---
+
+export const getIgnoredItems = (): string[] => {
+  try {
+    const stored = localStorage.getItem(IGNORED_KEY);
+    if (stored) {
+      return JSON.parse(stored);
+    } else {
+      localStorage.setItem(IGNORED_KEY, JSON.stringify(DEFAULT_IGNORED_ITEMS));
+      return DEFAULT_IGNORED_ITEMS;
+    }
+  } catch (e) {
+    console.error("Error parsing ignored items", e);
+    return DEFAULT_IGNORED_ITEMS;
+  }
+};
+
+export const addIgnoredItem = (symbol: string) => {
+  const items = getIgnoredItems();
+  if (!items.includes(symbol)) {
+    const newItems = [...items, symbol];
+    localStorage.setItem(IGNORED_KEY, JSON.stringify(newItems));
+    window.dispatchEvent(new Event(EVENT_KEY));
+  }
+};
+
+export const removeIgnoredItem = (symbol: string) => {
+  const items = getIgnoredItems();
+  const newItems = items.filter(i => i !== symbol);
+  localStorage.setItem(IGNORED_KEY, JSON.stringify(newItems));
+  window.dispatchEvent(new Event(EVENT_KEY));
+};
+
+export const isIgnored = (symbol: string): boolean => {
+  const items = getIgnoredItems();
+  return items.includes(symbol);
 };
 
 // --- Index Tracking Logic ---

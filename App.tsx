@@ -7,7 +7,9 @@ import StockSearch from './components/StockSearch';
 import TrackingDashboard from './components/TrackingDashboard/TrackingDashboard';
 import ConfigurationView from './components/Configuration/ConfigurationView';
 import { FundSnapshot, FundSearchResult } from './types';
-import { InsightResultItem } from './types/trackingTypes';
+import { InsightResultItem, IntelligentState } from './types/trackingTypes';
+import { useInsightExtraction } from './hooks/useInsightExtraction';
+import { getTrackedIndices } from './services/trackingStorage';
 
 function App() {
   const [activeTab, setActiveTab] = useState<string>('DASHBOARD');
@@ -20,6 +22,16 @@ function App() {
   const [bulkStatus, setBulkStatus] = useState<'idle' | 'initializing' | 'polling' | 'completed' | 'error'>('idle');
   const [bulkProgress, setBulkProgress] = useState({ completed: 0, total: 0 });
   const [requestId, setRequestId] = useState<string | null>(null);
+
+  // --- Lifted State for Intelligent Tracking ---
+  const intelligentExtraction = useInsightExtraction();
+  const [intelligentState, setIntelligentState] = useState<IntelligentState>({
+      selectedIndex: getTrackedIndices()[0] || "NIFTY 50",
+      symbols: [],
+      filter: "All",
+      page: 1,
+      pageSize: 50
+  });
 
   // Handle Navigation
   const handleTabChange = (tab: string) => {
@@ -42,7 +54,6 @@ function App() {
   };
   
   const handleSelectFundFromDashboard = (fund: FundSearchResult) => {
-    console.log("Navigating to fund:", fund.name);
     setSelectedFund(fund);
     setActiveTab('FUND_DETAIL');
   };
@@ -65,7 +76,7 @@ function App() {
           <TrackingDashboard 
             onSelectStock={handleSelectStock}
             onSelectFund={handleSelectFundFromDashboard}
-            // Pass lifted state
+            // Pass lifted state for Deep Dive
             bulkResults={bulkResults}
             setBulkResults={setBulkResults}
             bulkStatus={bulkStatus}
@@ -74,6 +85,10 @@ function App() {
             setBulkProgress={setBulkProgress}
             requestId={requestId}
             setRequestId={setRequestId}
+            // Pass lifted state for Intelligent Tracking
+            intelligentExtraction={intelligentExtraction}
+            intelligentState={intelligentState}
+            setIntelligentState={setIntelligentState}
           />
         );
       case 'FUND_DETAIL':
@@ -109,6 +124,9 @@ function App() {
             setBulkProgress={setBulkProgress}
             requestId={requestId}
             setRequestId={setRequestId}
+            intelligentExtraction={intelligentExtraction}
+            intelligentState={intelligentState}
+            setIntelligentState={setIntelligentState}
           />
         );
     }

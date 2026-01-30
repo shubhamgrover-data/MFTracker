@@ -1,19 +1,23 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Search, Loader2, RefreshCw, Database, Sparkles, ExternalLink, BarChart2, BrainCircuit } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Search, Loader2, RefreshCw, Database, Sparkles, ExternalLink, BarChart2, BrainCircuit, X, Globe, TrendingUp, TrendingDown } from 'lucide-react';
 import InsightCard from './InsightCard';
 import BulkInsightManager from './BulkInsightManager';
 import IntelligentTrackingManager from './IntelligentTrackingManager';
 import InsightChatbot from './InsightChatbot';
-import { getTrackedItems, TrackedItem } from '../../services/trackingStorage';
+import MarketOverview from './MarketOverview';
+import { getTrackedItems, TrackedItem, getTrackedIndices } from '../../services/trackingStorage';
 import { fetchMarketInsights } from '../../services/geminiService';
-import { Insight, InsightResultItem } from '../../types/trackingTypes';
+import { fetchMarketIndices } from '../../services/dataService';
+import { Insight, InsightResultItem, IntelligentState, MarketIndexData } from '../../types/trackingTypes';
 import { FundSearchResult } from '../../types';
+import { HEADER_INDICES } from '../../types/constants';
 import { useInsightExtraction } from '../../hooks/useInsightExtraction';
 
 interface TrackingDashboardProps {
   onSelectStock: (symbol: string, name: string) => void;
   onSelectFund: (fund: FundSearchResult) => void;
+  // Deep Dive State
   bulkResults: Record<string, InsightResultItem[]>;
   setBulkResults: React.Dispatch<React.SetStateAction<Record<string, InsightResultItem[]>>>;
   bulkStatus: 'idle' | 'initializing' | 'polling' | 'completed' | 'error';
@@ -22,15 +26,10 @@ interface TrackingDashboardProps {
   setBulkProgress: React.Dispatch<React.SetStateAction<{ completed: number; total: number }>>;
   requestId: string | null;
   setRequestId: React.Dispatch<React.SetStateAction<string | null>>;
-}
-
-// Interface for persisted Intelligent Tracking State
-export interface IntelligentState {
-    selectedIndex: string;
-    symbols: string[];
-    filter: string;
-    page: number;
-    pageSize: number;
+  // Intelligent State
+  intelligentExtraction: ReturnType<typeof useInsightExtraction>;
+  intelligentState: IntelligentState;
+  setIntelligentState: React.Dispatch<React.SetStateAction<IntelligentState>>;
 }
 
 const TrackingDashboard: React.FC<TrackingDashboardProps> = ({ 
@@ -43,13 +42,21 @@ const TrackingDashboard: React.FC<TrackingDashboardProps> = ({
   bulkProgress,
   setBulkProgress,
   requestId,
-  setRequestId
+  setRequestId,
+  intelligentExtraction,
+  intelligentState,
+  setIntelligentState
 }) => {
-  const [activeStreamTab, setActiveStreamTab] = useState<'DEEP_DIVE' | 'AI' | 'INTELLIGENT'>('INTELLIGENT');
+  const [activeStreamTab, setActiveStreamTab] = useState<'DEEP_DIVE' | 'AI' | 'INTELLIGENT' | 'MARKET'>('MARKET');
   
   // Global Data State
   const [entities, setEntities] = useState<TrackedItem[]>([]);
+  const [trackedIndices, setTrackedIndices] = useState<string[]>([]);
   
+  // Market Index Data (Shared across tabs for header)
+  const [marketIndices, setMarketIndices] = useState<MarketIndexData[]>([]);
+  const [loadingIndices, setLoadingIndices] = useState(false);
+
   // Market News State
   const [insights, setInsights] = useState<Insight[]>([]);
   const [loadingInsights, setLoadingInsights] = useState(false);
@@ -58,24 +65,23 @@ const TrackingDashboard: React.FC<TrackingDashboardProps> = ({
   // Chat State
   const [chatContext, setChatContext] = useState<any[] | null>(null);
 
-  // --- Lifted State for Intelligent Tracking (Persistence) ---
-  const intelligentHook = useInsightExtraction();
-  const [intelligentStats, setIntelligentStats] = useState({ filtered: 0, total: 0 });
-  
-  // Persisted View State for Intelligent Tracking
-  const [intelligentState, setIntelligentState] = useState<IntelligentState>({
-      selectedIndex: "NIFTY 50",
-      symbols: [],
-      filter: "All",
-      page: 1,
-      pageSize: 50
-  });
+  // Local stats for display
+  const [intelligentStats, setIntelligentStats] = useState<{ filtered: number; total: number; ignoredList: string[] }>({ filtered: 0, total: 0, ignoredList: [] });
+  const [showIgnoredPopover, setShowIgnoredPopover] = useState(false);
+  const ignoredPopoverRef = useRef<HTMLDivElement>(null);
+
+  const loadIndices = async () => {
+      setLoadingIndices(true);
+      const data = await fetchMarketIndices();
+      setMarketIndices(data);
+      setLoadingIndices(false);
+  };
 
   // Load initial data and listen for updates
   useEffect(() => {
     const loadItems = () => {
-        const loadedEntities = getTrackedItems();
-        setEntities(loadedEntities);
+        setEntities(getTrackedItems());
+        setTrackedIndices(getTrackedIndices());
     };
 
     loadItems();
@@ -87,6 +93,22 @@ const TrackingDashboard: React.FC<TrackingDashboardProps> = ({
     window.addEventListener('fundflow_tracking_update', handleStorageUpdate);
     return () => window.removeEventListener('fundflow_tracking_update', handleStorageUpdate);
   }, []); 
+
+  // Fetch Market Indices on Mount
+  useEffect(() => {
+      loadIndices();
+  }, []);
+
+  // Close popover on click outside
+  useEffect(() => {
+      const handleClickOutside = (event: MouseEvent) => {
+          if (ignoredPopoverRef.current && !ignoredPopoverRef.current.contains(event.target as Node)) {
+              setShowIgnoredPopover(false);
+          }
+      };
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const fetchInsights = async () => {
      if (entities.length === 0) return;
@@ -116,25 +138,122 @@ const TrackingDashboard: React.FC<TrackingDashboardProps> = ({
     }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [insights, entities, searchQuery]);
 
+  // Header Indices Data
+  const headerIndicesData = useMemo(() => {
+      return marketIndices.filter(idx => HEADER_INDICES.includes(idx.index));
+  }, [marketIndices]);
+
   return (
-    <div className="flex flex-col gap-6 animate-fade-in w-full max-w-7xl mx-auto">
+    <div className="flex flex-col gap-6 animate-fade-in w-full max-w-7xl mx-auto relative">
       
       {/* Header & Tabs */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-            <div>
+         <div className="flex flex-col lg:flex-row justify-between items-start gap-6 mb-6">
+            <div className="flex-1">
               <h2 className="text-2xl font-bold text-gray-900">Market Intelligence</h2>
-              <p className="text-gray-500 text-sm">
+              <p className="text-gray-500 text-sm relative mt-1">
                 {activeStreamTab === 'INTELLIGENT' 
-                  ? `Showing ${intelligentStats.filtered} stocks of ${intelligentStats.total} from index`
+                  ? (
+                    <span>
+                      Showing <strong>{intelligentStats.filtered}</strong> potential stocks from index ({intelligentStats.total} active)
+                      {intelligentStats.ignoredList.length > 0 && (
+                          <span className="ml-1 text-red-400">
+                              • <span 
+                                  className="cursor-pointer underline decoration-dotted hover:text-red-600"
+                                  onClick={() => setShowIgnoredPopover(!showIgnoredPopover)}
+                                >
+                                  {intelligentStats.ignoredList.length} ignored
+                                </span>
+                          </span>
+                      )}
+                    </span>
+                  )
+                  : activeStreamTab === 'MARKET' ? "Overview of global and tracked indices"
                   : `Tracking ${entities.length} items in your portfolio`
                 }
               </p>
+              
+              {/* Ignored List Popover */}
+              {showIgnoredPopover && intelligentStats.ignoredList.length > 0 && (
+                  <div 
+                    ref={ignoredPopoverRef}
+                    className="absolute z-50 mt-2 bg-white border border-gray-200 rounded-lg shadow-xl p-3 w-64 animate-fade-in left-0 md:left-auto"
+                  >
+                      <div className="flex justify-between items-center mb-2 pb-2 border-b border-gray-100">
+                          <h4 className="text-xs font-bold text-gray-700">Ignored in this Index</h4>
+                          <button onClick={() => setShowIgnoredPopover(false)} className="text-gray-400 hover:text-gray-600">
+                              <X size={14} />
+                          </button>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto space-y-1">
+                          {intelligentStats.ignoredList.map(sym => (
+                              <div 
+                                key={sym} 
+                                className="text-xs text-gray-600 px-2 py-1 rounded hover:bg-gray-50 cursor-pointer flex justify-between"
+                                onClick={() => { onSelectStock(sym, sym); setShowIgnoredPopover(false); }}
+                              >
+                                  <span>{sym}</span>
+                                  <ExternalLink size={10} className="text-gray-400 opacity-50" />
+                              </div>
+                          ))}
+                      </div>
+                  </div>
+              )}
+            </div>
+
+            {/* Subtle Market Header Stats - Vertical Stack */}
+            <div className="flex flex-col gap-2 items-end min-w-[200px]">
+                <div className="flex items-center gap-2 mb-1">
+                     <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Live Indices</span>
+                     <button 
+                         onClick={loadIndices}
+                         disabled={loadingIndices}
+                         className="p-1 text-gray-400 hover:text-indigo-600 transition-colors"
+                         title="Refresh Indices"
+                     >
+                         <RefreshCw size={12} className={loadingIndices ? 'animate-spin' : ''} />
+                     </button>
+                </div>
+                {headerIndicesData.length > 0 ? (
+                    headerIndicesData.map(idx => {
+                        const isPos = idx.percentChange >= 0;
+                        const tooltipText = `PE: ${idx.pe}\nPrevious Close: ${idx.previousClose}\nOpen: ${idx.open}\nHigh: ${idx.high}\nLow: ${idx.low}\nYear High: ${idx.yearHigh}\nYear Low: ${idx.yearLow}`;
+                        
+                        return (
+                            <div 
+                                key={idx.index} 
+                                className="flex items-center justify-between gap-3 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100 text-xs cursor-help hover:bg-gray-100 hover:border-gray-300 transition-colors w-full"
+                                title={tooltipText}
+                            >
+                                <span className="font-semibold text-gray-700">{idx.index}</span>
+                                <div className="flex items-center gap-2">
+                                    <span className="font-mono text-gray-800">{idx.last.toLocaleString()}</span>
+                                    <span className={`font-medium w-12 text-right ${isPos ? 'text-green-600' : 'text-red-600'}`}>
+                                        {isPos ? '+' : ''}{idx.percentChange.toFixed(2)}%
+                                    </span>
+                                </div>
+                            </div>
+                        );
+                    })
+                ) : (
+                    <div className="text-xs text-gray-400 italic">Loading indices...</div>
+                )}
             </div>
          </div>
 
-         {/* Tab Navigation */}
+         {/* Tab Navigation - Updated Order */}
          <div className="flex items-center gap-6 border-b border-gray-200 overflow-x-auto">
+             <button
+                onClick={() => setActiveStreamTab('MARKET')}
+                className={`flex items-center gap-2 px-2 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                    activeStreamTab === 'MARKET' 
+                    ? 'border-indigo-600 text-indigo-600' 
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+             >
+                <Globe size={18} />
+                Market Overview
+             </button>
              <button
                 onClick={() => setActiveStreamTab('INTELLIGENT')}
                 className={`flex items-center gap-2 px-2 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
@@ -174,12 +293,22 @@ const TrackingDashboard: React.FC<TrackingDashboardProps> = ({
       {/* Main Content Area */}
       <div className="min-h-[500px]">
          
+         {/* MARKET OVERVIEW */}
+         {activeStreamTab === 'MARKET' && (
+             <MarketOverview 
+                indicesData={marketIndices} 
+                trackedIndices={trackedIndices}
+                onRefresh={loadIndices}
+                loading={loadingIndices}
+             />
+         )}
+
          {/* INTELLIGENT TRACKING VIEW */}
          {activeStreamTab === 'INTELLIGENT' && (
             <IntelligentTrackingManager 
                 onOpenChat={(ctx) => setChatContext(ctx)}
                 onSelectStock={onSelectStock}
-                extractionData={intelligentHook}
+                extractionData={intelligentExtraction}
                 onStatsUpdate={setIntelligentStats}
                 // Pass persisted state props
                 viewState={intelligentState}

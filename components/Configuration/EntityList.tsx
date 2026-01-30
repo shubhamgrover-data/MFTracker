@@ -14,7 +14,7 @@ interface EntityListProps {
 const EntityList: React.FC<EntityListProps> = ({ title, items, onRemove, type, onItemClick }) => {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-full">
-      <div className="p-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
+      <div className="p-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2 shrink-0">
         {type === 'STOCK' ? (
            <Briefcase size={18} className="text-indigo-600" />
         ) : (
@@ -26,13 +26,13 @@ const EntityList: React.FC<EntityListProps> = ({ title, items, onRemove, type, o
         </span>
       </div>
 
-      <div className="overflow-y-auto flex-1 p-2 space-y-2 max-h-[500px]">
+      <div className="overflow-y-auto flex-1 p-2 space-y-1.5 custom-scrollbar">
         {items.length > 0 ? (
           items.map((item) => (
             <div 
               key={item.id} 
               onClick={() => onItemClick(item)}
-              className="group flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:border-indigo-300 hover:shadow-sm hover:bg-white cursor-pointer transition-all"
+              className="group flex items-center justify-between p-2.5 rounded-lg border border-gray-100 hover:border-indigo-300 hover:shadow-sm hover:bg-white cursor-pointer transition-all"
             >
               <div className="flex items-center gap-3 overflow-hidden">
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${

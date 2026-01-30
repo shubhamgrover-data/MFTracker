@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { Search, PieChart, ArrowRight, Loader2, Building2, Plus, Check } from 'lucide-react';
-import { searchFundsFromMasterList } from '../services/dataService';
+import { Search, PieChart, ArrowRight, Loader2, Building2, Plus, Check, RefreshCw } from 'lucide-react';
+import { searchFundsFromMasterList, reloadFundMasterList } from '../services/dataService';
 import { addTrackedItem, isTracked } from '../services/trackingStorage';
 import { FundSearchResult } from '../types';
 
@@ -63,6 +63,22 @@ const FundSearch: React.FC<FundSearchProps> = ({ onSelectFund }) => {
       url: fund.url 
     });
     setTick(tick + 1);
+  };
+
+  const handleRefreshDb = async () => {
+      setIsLoading(true);
+      try {
+          await reloadFundMasterList();
+          // Retry search
+          if (query.trim().length >= 2) {
+              const results = await searchFundsFromMasterList(query);
+              setSuggestions(results);
+          }
+      } catch (e) {
+          console.error("Failed to refresh fund DB", e);
+      } finally {
+          setIsLoading(false);
+      }
   };
 
   const TrackButton = ({ fund }: { fund: FundSearchResult }) => {
@@ -144,8 +160,14 @@ const FundSearch: React.FC<FundSearchProps> = ({ onSelectFund }) => {
                 ))}
               </div>
             ) : (
-              <div className="p-4 text-center text-gray-400 text-sm">
-                No funds found matching "{query}"
+              <div className="p-4 text-center text-gray-400 text-sm flex flex-col items-center gap-2">
+                <p>No funds found matching "{query}"</p>
+                <button 
+                    onClick={handleRefreshDb}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded text-xs text-gray-700 transition-colors"
+                >
+                    <RefreshCw size={12} /> Refresh Database
+                </button>
               </div>
             )}
           </div>

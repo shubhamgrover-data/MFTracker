@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Search, TrendingUp, ArrowRight, Loader2, Plus, Check } from 'lucide-react';
+import { Search, TrendingUp, ArrowRight, Loader2, Plus, Check, EyeOff } from 'lucide-react';
 import { searchStocksFromMasterList } from '../services/dataService';
-import { addTrackedItem, isTracked } from '../services/trackingStorage';
+import { addTrackedItem, isTracked, isIgnored, addIgnoredItem, removeIgnoredItem, removeTrackedItem } from '../services/trackingStorage';
 
 interface StockSearchProps {
   onSelectStock: (symbol: string, name: string) => void;
@@ -47,7 +47,7 @@ const StockSearch: React.FC<StockSearchProps> = ({ onSelectStock }) => {
   const [suggestions, setSuggestions] = useState<Array<{ symbol: string; name: string }>>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-  // Helper state to force re-render when tracking changes
+  // Helper state to force re-render when tracking/ignoring changes
   const [tick, setTick] = useState(0);
 
   // Debounce search input
@@ -77,7 +77,42 @@ const StockSearch: React.FC<StockSearchProps> = ({ onSelectStock }) => {
   const handleTrack = (e: React.MouseEvent, symbol: string, name: string) => {
     e.stopPropagation();
     addTrackedItem({ id: symbol, name, symbol, type: 'STOCK' });
-    setTick(tick + 1); // Trigger re-render to update icon
+    // If tracking, ensure it's not on the ignore list
+    if (isIgnored(symbol)) {
+        removeIgnoredItem(symbol);
+    }
+    setTick(tick + 1); 
+  };
+
+  const handleIgnore = (e: React.MouseEvent, symbol: string) => {
+    e.stopPropagation();
+    if (isIgnored(symbol)) {
+        removeIgnoredItem(symbol);
+    } else {
+        addIgnoredItem(symbol);
+        // If ignoring, remove from tracking if it was there
+        if (isTracked(symbol, 'STOCK')) {
+            removeTrackedItem(symbol, 'STOCK');
+        }
+    }
+    setTick(tick + 1);
+  };
+
+  const IgnoreButton = ({ symbol }: { symbol: string }) => {
+    const ignored = isIgnored(symbol);
+    return (
+      <button
+        onClick={(e) => handleIgnore(e, symbol)}
+        className={`p-2 rounded-lg transition-all ${
+           ignored 
+           ? 'bg-red-50 text-red-600 shadow-sm border border-red-100' 
+           : 'bg-gray-100 text-gray-400 hover:bg-red-600 hover:text-white'
+        }`}
+        title={ignored ? "Remove from Ignore List" : "Ignore Stock (Hide from Intelligent Tracking)"}
+      >
+        <EyeOff size={16} />
+      </button>
+    );
   };
 
   const TrackButton = ({ symbol, name }: { symbol: string, name: string }) => {
@@ -87,7 +122,7 @@ const StockSearch: React.FC<StockSearchProps> = ({ onSelectStock }) => {
         onClick={(e) => handleTrack(e, symbol, name)}
         className={`p-2 rounded-lg transition-all ${
            tracked 
-           ? 'bg-green-50 text-green-600 cursor-default' 
+           ? 'bg-green-50 text-green-600 cursor-default border border-green-100' 
            : 'bg-gray-100 text-gray-400 hover:bg-indigo-600 hover:text-white'
         }`}
         title={tracked ? "Added to Watchlist" : "Add to Watchlist"}
@@ -151,6 +186,7 @@ const StockSearch: React.FC<StockSearchProps> = ({ onSelectStock }) => {
                       </div>
                       
                       <div className="flex items-center gap-2">
+                        <IgnoreButton symbol={stock.symbol} />
                         <TrackButton symbol={stock.symbol} name={stock.name} />
                         <div className="p-2 text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
                             <ArrowRight size={16} />
@@ -194,7 +230,10 @@ const StockSearch: React.FC<StockSearchProps> = ({ onSelectStock }) => {
                       <div className="text-xs text-gray-500 font-mono">{stock.symbol}</div>
                    </div>
                 </div>
-                <TrackButton symbol={stock.symbol} name={stock.name} />
+                <div className="flex items-center gap-2">
+                    <IgnoreButton symbol={stock.symbol} />
+                    <TrackButton symbol={stock.symbol} name={stock.name} />
+                </div>
               </div>
             ))}
           </div>

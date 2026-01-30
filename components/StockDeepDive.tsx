@@ -1,8 +1,8 @@
 
 import React, { useEffect, useState } from 'react';
-import { RefreshCw, Loader2, Sparkles, MessageSquare, Plus, Check } from 'lucide-react';
+import { RefreshCw, Loader2, Sparkles, MessageSquare, Plus, Check, EyeOff } from 'lucide-react';
 import { useInsightExtraction } from '../hooks/useInsightExtraction';
-import { addTrackedItem, removeTrackedItem, isTracked } from '../services/trackingStorage';
+import { addTrackedItem, removeTrackedItem, isTracked, isIgnored, addIgnoredItem, removeIgnoredItem } from '../services/trackingStorage';
 import InsightChatbot from './TrackingDashboard/InsightChatbot';
 import BaseInsightCard from './TrackingDashboard/cards/BaseInsightCard';
 
@@ -26,6 +26,7 @@ const StockDeepDive: React.FC<StockDeepDiveProps> = ({ symbol, stockName }) => {
   const { results, status, startExtraction, progress } = useInsightExtraction();
   const [chatContext, setChatContext] = useState<any[] | null>(null);
   const [isTrackedStock, setIsTrackedStock] = useState(false);
+  const [isIgnoredStock, setIsIgnoredStock] = useState(false);
   
   // Auto-fetch on mount if no data
   useEffect(() => {
@@ -37,6 +38,7 @@ const StockDeepDive: React.FC<StockDeepDiveProps> = ({ symbol, stockName }) => {
   // Check tracking status
   useEffect(() => {
     setIsTrackedStock(isTracked(symbol, 'STOCK'));
+    setIsIgnoredStock(isIgnored(symbol));
   }, [symbol]);
 
   const toggleTracking = () => {
@@ -46,7 +48,27 @@ const StockDeepDive: React.FC<StockDeepDiveProps> = ({ symbol, stockName }) => {
     } else {
         addTrackedItem({ id: symbol, name: stockName, symbol, type: 'STOCK' });
         setIsTrackedStock(true);
+        // If adding to track, remove from ignore if present
+        if(isIgnoredStock) {
+            removeIgnoredItem(symbol);
+            setIsIgnoredStock(false);
+        }
     }
+  };
+
+  const toggleIgnore = () => {
+      if (isIgnoredStock) {
+          removeIgnoredItem(symbol);
+          setIsIgnoredStock(false);
+      } else {
+          addIgnoredItem(symbol);
+          setIsIgnoredStock(true);
+          // If ignoring, usually implies not tracking (or hiding it)
+          if (isTrackedStock) {
+             removeTrackedItem(symbol, 'STOCK');
+             setIsTrackedStock(false);
+          }
+      }
   };
 
   const stockResults = results[symbol] || [];
@@ -82,6 +104,19 @@ const StockDeepDive: React.FC<StockDeepDiveProps> = ({ symbol, stockName }) => {
            
            <div className="flex items-center gap-3 w-full sm:w-auto">
                <button
+                   onClick={toggleIgnore}
+                   className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                       isIgnoredStock 
+                       ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100' 
+                       : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50 hover:text-red-600'
+                   }`}
+                   title={isIgnoredStock ? "Remove from Ignore List" : "Ignore Stock (Hide from Intelligent Tracking)"}
+               >
+                   <EyeOff size={16} />
+                   <span>{isIgnoredStock ? 'Ignored' : 'Ignore'}</span>
+               </button>
+
+               <button
                    onClick={toggleTracking}
                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
                        isTrackedStock 
@@ -91,7 +126,7 @@ const StockDeepDive: React.FC<StockDeepDiveProps> = ({ symbol, stockName }) => {
                    title={isTrackedStock ? "Remove from Watchlist" : "Add to Watchlist"}
                >
                    {isTrackedStock ? <Check size={16} /> : <Plus size={16} />}
-                   <span>{isTrackedStock ? 'Tracked' : 'Track Stock'}</span>
+                   <span>{isTrackedStock ? 'Tracked' : 'Track'}</span>
                </button>
 
                {stockResults.length > 0 && (
@@ -105,9 +140,10 @@ const StockDeepDive: React.FC<StockDeepDiveProps> = ({ symbol, stockName }) => {
                )}
                
                <button 
-                   onClick={() => startExtraction([symbol])}
+                   onClick={() => startExtraction([symbol],1,true)} //Changed intentionally to do force refresh
                    disabled={isLoading}
                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium transition-colors ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
+                   title='Force refresh'
                >
                    {isLoading ? (
                        <>
@@ -117,7 +153,7 @@ const StockDeepDive: React.FC<StockDeepDiveProps> = ({ symbol, stockName }) => {
                    ) : (
                        <>
                          <RefreshCw size={16} />
-                         <span>Refresh Analysis</span>
+                        
                        </>
                    )}
                </button>

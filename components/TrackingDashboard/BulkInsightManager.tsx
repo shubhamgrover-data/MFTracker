@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Loader2, RefreshCw, MessageSquare, Check, LayoutGrid, List, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { TrackedItem } from '../../services/trackingStorage';
-import { initiateBulkInsightExtraction, pollBulkInsightStatus } from '../../services/dataService';
+import { initiateBulkInsightExtraction, pollBulkInsightStatus, fetchStockSecInfo } from '../../services/dataService';
 import { PollStatusResponse, InsightResultItem } from '../../types/trackingTypes';
 import { processRawInsightData } from '../../services/geminiService';
 import { getTopElementInnerHTML} from '../../services/helper.ts';
@@ -215,7 +215,8 @@ const BulkInsightManager: React.FC<BulkInsightManagerProps> = ({
     setResults(prev => {
       const next = { ...prev };
       // Deep merge logic
-      for (const [symbol, newItems] of Object.entries(data.results)) {
+      for (const [symbol, val] of Object.entries(data.results)) {
+        const newItems = val as InsightResultItem[];
         const existingItems = next[symbol] || [];
         const mergedItems = [...existingItems];
         newItems.forEach(newItem => {
@@ -247,7 +248,7 @@ const BulkInsightManager: React.FC<BulkInsightManagerProps> = ({
   // --- Gemini Processing Logic for HTML Content ---
   useEffect(() => {
     Object.entries(results).forEach(([symbol, items]) => {
-      items.forEach(async (item) => {
+      (items as InsightResultItem[]).forEach(async (item) => {
         const uniqueKey = `${symbol}-${item.indicatorName}`;
         
         // If item requires parsing, is raw HTML string, matches simple HTML check, and isn't processing
@@ -271,6 +272,17 @@ const BulkInsightManager: React.FC<BulkInsightManagerProps> = ({
                 let jsonObj;
                 try {
                     jsonObj = JSON.parse(jsonStr);
+                    // MERGE NSE DATA FOR PE CARD (Fix for Tracked Assets view)
+                    if (item.indicatorName === 'PE') {
+                         try {
+                             const secInfo = await fetchStockSecInfo(symbol);
+                             if (secInfo) {
+                                 jsonObj.secInfo = secInfo;
+                             }
+                         } catch(e) {
+                             console.warn(`Failed to fetch NSE SecInfo for ${symbol}`, e);
+                         }
+                    }
                 } catch(e) {
                     jsonObj = { error: "Failed to parse data output", raw: jsonStr };
                 }
@@ -367,7 +379,8 @@ const BulkInsightManager: React.FC<BulkInsightManagerProps> = ({
 
   const flatItems = useMemo(() => {
       const flat: Array<{ symbol: string; item: InsightResultItem }> = [];
-      Object.entries(results).forEach(([symbol, indicators]) => {
+      Object.entries(results).forEach(([symbol, val]) => {
+          const indicators = val as InsightResultItem[];
           if (filterSymbols.length > 0 && !filterSymbols.includes(symbol)) return;
 
           indicators.forEach(item => {
@@ -387,7 +400,7 @@ const BulkInsightManager: React.FC<BulkInsightManagerProps> = ({
   const totalPages = Math.ceil(flatItems.length / pageSize);
 
   const uniqueSymbols = Object.keys(results);
-  const uniqueIndicators = Array.from(new Set(Object.values(results).flat().map(i => i.indicatorName)));
+  const uniqueIndicators = Array.from(new Set((Object.values(results).flat() as InsightResultItem[]).map(i => i.indicatorName)));
 
   if (items.filter(i => i.type === 'STOCK').length === 0) return null;
 
@@ -510,7 +523,7 @@ const BulkInsightManager: React.FC<BulkInsightManagerProps> = ({
 
       {/* Loading Skeleton */}
       {flatItems.length === 0 && (status === 'initializing' || status === 'polling') && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-pulse">
              {[...Array(6)].map((_, i) => (
                  <div key={i} className="bg-white rounded-xl border border-gray-100 p-4 h-40 flex flex-col justify-between">
                     <div className="flex justify-between items-center mb-4">
@@ -538,7 +551,7 @@ const BulkInsightManager: React.FC<BulkInsightManagerProps> = ({
 
       {/* Grid vs List View */}
       <div className={`
-        ${viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4' : 'flex flex-col gap-3'}
+        ${viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4' : 'flex flex-col gap-3'}
       `}>
           {paginatedItems.map(({ symbol, item }, idx) => {
               const cardKey = `${symbol}|${item.indicatorName}`;

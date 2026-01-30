@@ -1,13 +1,12 @@
 
 import React from 'react';
-import { TrendingUp, Briefcase, Activity, Layers, Plus, Check, ExternalLink, Gauge, RefreshCw, Square, CheckSquare } from 'lucide-react';
+import { TrendingUp, Briefcase, Activity, Layers, ExternalLink, Gauge, RefreshCw, Square, CheckSquare } from 'lucide-react';
 import { ProcessedInsight } from '../../../services/indicatorProcessor';
 
 interface IntelligentStockCardProps {
   symbol: string;
   insights: ProcessedInsight[];
   isTracked: boolean;
-  onToggleTrack: () => void;
   onOpenDeepDive: () => void;
   onAskAI: () => void;
   onRefresh: () => void;
@@ -19,7 +18,6 @@ const IntelligentStockCard: React.FC<IntelligentStockCardProps> = ({
   symbol, 
   insights,
   isTracked,
-  onToggleTrack, 
   onOpenDeepDive,
   onAskAI,
   onRefresh,
@@ -88,7 +86,7 @@ const IntelligentStockCard: React.FC<IntelligentStockCardProps> = ({
                     className="flex items-center gap-2 text-left cursor-pointer hover:bg-gray-100 p-1 rounded-lg transition-colors flex-1 min-w-0"
                     title="Click for Deep Dive Analysis"
                  >
-                     <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs shrink-0">
+                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${isTracked ? 'bg-green-100 text-green-700' : 'bg-indigo-100 text-indigo-700'}`}>
                         {symbol[0]}
                      </div>
                      <div className="min-w-0">
@@ -123,19 +121,6 @@ const IntelligentStockCard: React.FC<IntelligentStockCardProps> = ({
                     title="Force Refresh Data"
                  >
                     <RefreshCw size={14} />
-                 </button>
-
-                 {/* Track Toggle Button */}
-                 <button 
-                    onClick={(e) => { e.stopPropagation(); onToggleTrack(); }}
-                    className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-all shrink-0 ml-1 ${
-                        isTracked 
-                        ? 'bg-green-50 border-green-200 text-green-600' 
-                        : 'bg-white border-gray-200 text-gray-400 hover:text-indigo-600 hover:border-indigo-200'
-                    }`}
-                    title={isTracked ? "Remove from Tracking List" : "Add to Tracking List"}
-                 >
-                    {isTracked ? <Check size={14} /> : <Plus size={14} />}
                  </button>
              </div>
         </div>

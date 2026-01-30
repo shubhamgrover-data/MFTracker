@@ -1,6 +1,7 @@
 
 import React from 'react';
-import { Activity } from 'lucide-react';
+import { Activity, Tag } from 'lucide-react';
+import { getTrackedIndices } from '../../../services/trackingStorage';
 
 interface Tile {
   title: string;
@@ -9,8 +10,21 @@ interface Tile {
   message: string;
 }
 
+interface SecInfo {
+    macro?: string;
+    sector?: string;
+    industryInfo?: string;
+    indexList?: string[];
+    basicIndustry?: string;
+    pdSectorPe?: string;
+    pdSectorInd?: string;
+}
+
 interface PECardProps {
-  data: { tiles: Tile[] } | null;
+  data: { 
+      tiles: Tile[]; 
+      secInfo?: SecInfo; 
+  } | null;
 }
 
 const PECard: React.FC<PECardProps> = ({ data }) => {
@@ -30,10 +44,9 @@ const PECard: React.FC<PECardProps> = ({ data }) => {
   const daysBelow = getTile("% Days traded below current PE"); 
   const forwardPE = getTile("Forward PE");
 
-  // Logic to clean the value string (remove newlines and extra text often found in scraped data)
+  // Logic to clean the value string
   const cleanValue = (val: string | undefined) => {
       if (!val) return '-';
-      // Remove text like "Strong Buy Zone" that might be appended to the value string in some parsers
       return val.replace(/\n/g, ' ').replace(/[a-zA-Z]/g, '').replace(/%/g, '').trim();
   };
 
@@ -41,10 +54,7 @@ const PECard: React.FC<PECardProps> = ({ data }) => {
   const valuationMessage = daysBelow?.message || "";
   const valuationValue = daysBelow?.value || "";
   
-  // Determine color based on explicit message or heuristic
   let zoneClass = "bg-gray-100 text-gray-600 border-gray-200";
-  let statusText = valuationMessage || "Neutral";
-
   const lowerMsg = (valuationMessage + " " + valuationValue).toLowerCase();
 
   if (lowerMsg.includes("buy") || lowerMsg.includes("undervalued")) {
@@ -55,24 +65,55 @@ const PECard: React.FC<PECardProps> = ({ data }) => {
       zoneClass = "bg-yellow-50 text-yellow-700 border-yellow-200";
   }
 
-  // Extract numeric percentage for display
   const daysBelowPercent = cleanValue(daysBelow?.value);
 
+  // --- NSE Data Logic ---
+  const trackedIndices = getTrackedIndices().map(i => i.toLowerCase().trim());
+  const indexList = data.secInfo?.indexList || [];
+  
+  // Filter indexList to only show those that are in trackedIndices (Case Insensitive)
+  const relevantIndices = indexList.filter(idx => trackedIndices.includes(idx.toLowerCase().trim()));
+  const { macro, sector, industryInfo, basicIndustry, pdSectorPe, pdSectorInd } = data.secInfo || {};
+
+  const sectorIndex = pdSectorInd ? pdSectorInd.trim() : null;
+  const hasSecInfo = relevantIndices.length > 0 || macro || sector || industryInfo || basicIndustry || sectorIndex;
+
   return (
-    <div className="h-full flex flex-col justify-between gap-3">
+    <div className="h-full flex flex-col justify-between gap-3 overflow-y-auto custom-scrollbar p-1">
+      {/* NSE SecInfo Footer (Subtle) : Moved and positioned it here intentionally. Keep it here: Changed to basic industry*/}
+      {hasSecInfo && (
+          <div className="flex flex-col gap-2 pt-2 border-t border-gray-50 animate-fade-in">
+              <div className="flex items-center justify-between gap-2">
+                 {(macro || sector || industryInfo || basicIndustry) && (
+                     <div className="flex items-center gap-1.5 text-[9px] text-gray-500 overflow-hidden">
+                         <Tag size={10} className="shrink-0 text-gray-400" />
+                         <span className="truncate" title={`${macro || ''} > ${sector || ''} > ${industryInfo || ''}`}>
+                             {[macro, sector, basicIndustry].filter(Boolean).join(" • ")}
+                         </span>
+                     </div>
+                 )}
+                 {sectorIndex && (
+                     <div className="text-[9px] font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0 border border-gray-200" title="Sector Index">
+                         {sectorIndex}
+                     </div>
+                 )}
+              </div>
+          </div>
+      )}
+
       {/* Top Status Banner */}
       {valuationMessage && (
-         <div className={`px-3 py-1.5 rounded-lg text-xs font-bold border text-center truncate ${zoneClass}`}>
+         <div className={`px-3 py-1.5 rounded-lg text-xs font-bold border text-center truncate shrink-0 ${zoneClass}`}>
             {valuationMessage}
          </div>
       )}
 
       {/* Main Metrics Grid */}
-      <div className="grid grid-cols-2 gap-3 flex-1 items-center">
+      <div className={`grid ${pdSectorPe ? 'grid-cols-3' : 'grid-cols-2'} gap-2 shrink-0 items-center`}>
         {/* Current PE */}
-        <div className="flex flex-col p-2.5 bg-indigo-50/50 rounded-lg border border-indigo-100/50 relative overflow-hidden group">
-            <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider z-10">Current PE</span>
-            <span className="text-xl md:text-2xl font-bold text-gray-900 z-10 mt-0.5">
+        <div className="flex flex-col p-2 bg-indigo-50/50 rounded-lg border border-indigo-100/50 relative overflow-hidden group min-h-[50px] justify-center">
+            <span className="text-[9px] text-gray-500 font-semibold uppercase tracking-wider z-10 leading-none mb-1">Current PE</span>
+            <span className="text-lg font-bold text-gray-900 z-10 leading-none">
                 {cleanValue(currentPE?.value)}
             </span>
             <div className="absolute right-[-10px] bottom-[-10px] opacity-5 group-hover:opacity-10 transition-opacity">
@@ -81,16 +122,38 @@ const PECard: React.FC<PECardProps> = ({ data }) => {
         </div>
 
         {/* Average PE */}
-        <div className="flex flex-col p-2.5 bg-white rounded-lg border border-gray-100">
-            <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Average PE</span>
-            <span className="text-lg font-semibold text-gray-700 mt-0.5">
+        <div className="flex flex-col p-2 bg-white rounded-lg border border-gray-100 min-h-[50px] justify-center">
+            <span className="text-[9px] text-gray-400 font-semibold uppercase tracking-wider leading-none mb-1">Avg PE</span>
+            <span className="text-base font-semibold text-gray-700 leading-none">
                 {cleanValue(averagePE?.value)}
             </span>
         </div>
+
+        {/* Sector PE */}
+        {pdSectorPe && (
+            <div className="flex flex-col p-2 bg-gray-50 rounded-lg border border-gray-100 min-h-[50px] justify-center">
+                <span className="text-[9px] text-gray-400 font-semibold uppercase tracking-wider leading-none mb-1">Sec PE</span>
+                <span className="text-base font-semibold text-gray-700 leading-none">
+                    {pdSectorPe}
+                </span>
+            </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2 pt-2 border-t border-gray-50 animate-fade-in">
+        {relevantIndices.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+                {relevantIndices.map(idx => (
+                    <span key={idx} className="text-[9px] font-medium px-1.5 py-0.5 bg-orange-50 text-orange-700 border border-orange-100 rounded">
+                        {idx}
+                    </span>
+                ))}
+            </div>
+        )}
       </div>
 
       {/* Footer Metrics */}
-      <div className="flex items-center justify-between pt-2 border-t border-gray-50 mt-1">
+      <div className="flex items-center justify-between pt-1 mt-auto">
          <div className="flex flex-col">
             <span className="text-[10px] text-gray-400">Traded Below Current</span>
             <div className="flex items-center gap-1.5 mt-0.5">

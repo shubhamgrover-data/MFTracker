@@ -1,12 +1,11 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Loader2, RefreshCw, Filter, BrainCircuit, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Loader2, RefreshCw, Filter, BrainCircuit, ChevronDown, ChevronLeft, ChevronRight, Search, EyeOff, Plus } from 'lucide-react';
 import { fetchIndexConstituents } from '../../services/dataService';
 import { processIndicatorData, ProcessedInsight } from '../../services/indicatorProcessor';
-import { isTracked, addTrackedItem, removeTrackedItem, getTrackedIndices } from '../../services/trackingStorage';
+import { isTracked, addTrackedItem, removeTrackedItem, getTrackedIndices, getIgnoredItems, addIgnoredItem } from '../../services/trackingStorage';
 import IntelligentStockCard from './cards/IntelligentStockCard';
-import { InsightResultItem } from '../../types/trackingTypes';
-import { IntelligentState } from './TrackingDashboard'; // Import type from parent
+import { InsightResultItem, IntelligentState } from '../../types/trackingTypes';
 
 interface IntelligentTrackingManagerProps {
   onOpenChat: (context: any[]) => void;
@@ -18,7 +17,7 @@ interface IntelligentTrackingManagerProps {
       startExtraction: (symbols: string[], batchSize?: number, invalidateCache?: boolean) => Promise<void>;
       progress: { completed: number; total: number };
   };
-  onStatsUpdate: (stats: { filtered: number; total: number }) => void;
+  onStatsUpdate: (stats: { filtered: number; total: number; ignoredList: string[] }) => void;
   // Persisted View State
   viewState: IntelligentState;
   setViewState: React.Dispatch<React.SetStateAction<IntelligentState>>;
@@ -38,10 +37,17 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
   const [loadingSymbols, setLoadingSymbols] = useState(false);
   const [trackTick, setTrackTick] = useState(0);
   const [availableIndices, setAvailableIndices] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   
   // Selection and Force Refresh State
   const [selectedSymbols, setSelectedSymbols] = useState<Set<string>>(new Set());
   const [forceRefresh, setForceRefresh] = useState(false);
+  
+  // Ignore list state to filter locally
+  const [ignoredItems, setIgnoredItems] = useState<string[]>([]);
+  
+  // Current Index Ignored List
+  const [currentIndexIgnored, setCurrentIndexIgnored] = useState<string[]>([]);
 
   // Destructure hook data
   const { results, status, startExtraction, progress } = extractionData;
@@ -55,40 +61,56 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
       setViewState(prev => ({ ...prev, ...updates }));
   };
 
-  // 0. Load Available Indices
+  // 0. Load Available Indices & Ignored List
   useEffect(() => {
-    const loadIndices = () => {
+    const loadData = () => {
         const indices = getTrackedIndices();
         setAvailableIndices(indices);
+        setIgnoredItems(getIgnoredItems());
         
         // Safety check: if current selected index was deleted, default to first available
         if (indices.length > 0 && !indices.includes(viewState.selectedIndex)) {
             updateState({ selectedIndex: indices[0], symbols: [], page: 1 });
         }
     };
-    loadIndices();
+    loadData();
     
     // Listen for storage changes
-    const handleUpdate = () => loadIndices();
+    const handleUpdate = () => loadData();
     window.addEventListener('fundflow_tracking_update', handleUpdate);
     return () => window.removeEventListener('fundflow_tracking_update', handleUpdate);
   }, [viewState.selectedIndex]);
 
   // 1. Fetch Index Symbols on Change (Persisted in viewState.symbols)
   useEffect(() => {
-     // If we already have symbols for this index, don't refetch unless forced or empty
-     if (viewState.symbols.length > 0 && !loadingSymbols) return;
+     // If we already have symbols for this index, we still need to re-calculate ignored items 
+     // because ignore list might have changed.
      
      // Only fetch if we have a valid selected index
      if (!viewState.selectedIndex) return;
 
      const loadSymbols = async () => {
-         setLoadingSymbols(true);
+         // Avoid re-fetching API if we just want to re-filter
+         const alreadyLoaded = viewState.symbols.length > 0 && !loadingSymbols;
+         
+         if(!alreadyLoaded) setLoadingSymbols(true);
+         
          try {
-             const data = await fetchIndexConstituents(viewState.selectedIndex);
-             updateState({ symbols: data, page: 1 }); // Reset page on index change
-             // Clear selection on index change
-             setSelectedSymbols(new Set());
+             // For simplicity, we always refetch constituents to ensure we get the full list for calculating ignored
+             // Optimization: We could cache raw index response
+             const allSymbols = await fetchIndexConstituents(viewState.selectedIndex);
+             
+             const ignored = getIgnoredItems();
+             const ignoredInIndex = allSymbols.filter(s => ignored.includes(s));
+             const cleanSymbols = allSymbols.filter(s => !ignored.includes(s));
+
+             setCurrentIndexIgnored(ignoredInIndex);
+
+             // Only update viewState if it actually changed (shallow check optimization implied)
+             if (!alreadyLoaded || cleanSymbols.length !== viewState.symbols.length) {
+                 updateState({ symbols: cleanSymbols, page: 1 }); 
+                 setSelectedSymbols(new Set());
+             }
          } catch (e) {
              console.error("Failed to fetch index symbols", e);
              updateState({ symbols: [] });
@@ -97,7 +119,7 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
          }
      };
      loadSymbols();
-  }, [viewState.selectedIndex]); // Only run when index name changes (or on mount if empty)
+  }, [viewState.selectedIndex, trackTick]); // re-run if tracking/ignore list changes (trackTick updates on ignore action)
 
   // 2. Start Extraction logic (Smart Refresh for Missing Symbols)
   useEffect(() => {
@@ -124,7 +146,8 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
           setProcessingData(true);
           const newProcessed: Record<string, ProcessedInsight[]> = {};
 
-          for (const [symbol, items] of Object.entries(results)) {
+          for (const [symbol, val] of Object.entries(results)) {
+              const items = val as InsightResultItem[];
               // Optimization: Only process symbols relevant to current index to save performance
               if (!viewState.symbols.includes(symbol)) continue;
 
@@ -151,11 +174,24 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
 
   // 4. Filter Logic
   const filteredStocks = useMemo(() => {
-      return Object.entries(processedStocks).filter(([_, insights]) => {
-          if (viewState.filter === "All") return true;
-          return insights.some(i => i.type === viewState.filter);
+      return (Object.entries(processedStocks) as [string, ProcessedInsight[]][]).filter(([symbol, insights]) => {
+          // 0. Double check ignore list
+          if (ignoredItems.includes(symbol)) return false;
+
+          // 1. Filter by Insight Type
+          const matchesType = viewState.filter === "All" || insights.some(i => i.type === viewState.filter);
+          if (!matchesType) return false;
+
+          // 2. Filter by Search Query
+          if (!searchQuery) return true;
+          const lowerQ = searchQuery.toLowerCase();
+          
+          if (symbol.toLowerCase().includes(lowerQ)) return true;
+          if (insights.some(i => i.text?.toLowerCase().includes(lowerQ))) return true;
+
+          return false;
       }).sort((a, b) => b[1].length - a[1].length); 
-  }, [processedStocks, viewState.filter]);
+  }, [processedStocks, viewState.filter, searchQuery, ignoredItems]);
 
   // 5. Pagination Logic
   const paginatedStocks = useMemo(() => {
@@ -169,18 +205,10 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
   useEffect(() => {
       onStatsUpdate({
           filtered: filteredStocks.length,
-          total: viewState.symbols.length
+          total: viewState.symbols.length,
+          ignoredList: currentIndexIgnored
       });
-  }, [filteredStocks.length, viewState.symbols.length, onStatsUpdate]);
-
-  const handleToggleTrack = (symbol: string) => {
-      if (isTracked(symbol, 'STOCK')) {
-          removeTrackedItem(symbol, 'STOCK');
-      } else {
-          addTrackedItem({ id: symbol, name: symbol, symbol, type: 'STOCK' });
-      }
-      setTrackTick(prev => prev + 1);
-  };
+  }, [filteredStocks.length, viewState.symbols.length, currentIndexIgnored, onStatsUpdate]);
 
   const handleToggleSelect = (symbol: string) => {
       const newSet = new Set(selectedSymbols);
@@ -194,18 +222,37 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
 
   const handleManualRefresh = () => {
       if (selectedSymbols.size > 0) {
-          // If specific cards selected, force refresh them
           startExtraction(Array.from(selectedSymbols), BATCH_SIZE, true);
-          // Optional: Clear selection or keep it? Keeping it allows re-selection.
-          setSelectedSymbols(new Set()); // Clear to indicate action taken
+          setSelectedSymbols(new Set()); 
       } else if (viewState.symbols.length > 0) {
-          // If no selection, refresh entire view based on force checkbox
           startExtraction(viewState.symbols, BATCH_SIZE, forceRefresh);
       }
   };
+  
+  const handleIgnoreSelected = () => {
+      if (selectedSymbols.size === 0) return;
+      
+      const toIgnore = Array.from(selectedSymbols);
+      toIgnore.forEach(sym => addIgnoredItem(sym));
+      
+      setTrackTick(prev => prev + 1);
+      setSelectedSymbols(new Set());
+  };
+
+  const handleTrackSelected = () => {
+      if (selectedSymbols.size === 0) return;
+      
+      const toTrack = Array.from(selectedSymbols);
+      toTrack.forEach(sym => {
+          // Use symbol as name if full name isn't readily available in this context
+          addTrackedItem({ id: sym, name: sym, symbol: sym, type: 'STOCK' });
+      });
+      
+      setTrackTick(prev => prev + 1);
+      setSelectedSymbols(new Set());
+  };
 
   const handleCardRefresh = (symbol: string) => {
-      // Single card refresh always forces cache invalidation
       startExtraction([symbol], 1, true);
   };
 
@@ -218,9 +265,8 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
                {/* Index Selector */}
                <div className="relative w-full md:w-48">
                    <select 
-                       value={viewState.selectedIndex}
+                       value={viewState.selectedIndex as string}
                        onChange={(e) => {
-                           // This triggers symbol reload via effect 1
                            updateState({ selectedIndex: e.target.value, symbols: [], page: 1 }); 
                        }}
                        className="w-full appearance-none bg-gray-50 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg pl-4 pr-10 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
@@ -229,6 +275,20 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
                        {availableIndices.map(idx => <option key={idx} value={idx}>{idx}</option>)}
                    </select>
                    <ChevronDown size={16} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
+               </div>
+
+                {/* Search Box */}
+               <div className="relative w-full md:w-48">
+                   <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                        <Search size={16} className="text-gray-400" />
+                   </div>
+                   <input 
+                       type="text"
+                       value={searchQuery as string}
+                       onChange={(e) => setSearchQuery(e.target.value)}
+                       placeholder="Search insights..."
+                       className="w-full bg-gray-50 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                   />
                </div>
                
                <div className="h-6 w-px bg-gray-200 hidden md:block"></div>
@@ -256,11 +316,10 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
                        <input 
                            type="checkbox" 
                            checked={forceRefresh} 
-                           visibility=false
                            onChange={(e) => setForceRefresh(e.target.checked)}
                            className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
                        />
-                       Refresh index cache
+                       Invalidate Cache
                    </label>
                )}
            </div>
@@ -319,14 +378,40 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
                            Analyzing {progress.completed}/{progress.total}
                        </span>
                    </div>
+               ) : selectedSymbols.size > 0 ? (
+                   <div className="flex items-center gap-2">
+                       <button 
+                           onClick={handleTrackSelected}
+                           className="flex items-center gap-2 px-3 py-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg transition-colors text-sm font-medium whitespace-nowrap"
+                           title="Add selected to Watchlist"
+                       >
+                           <Plus size={16} />
+                           Track ({selectedSymbols.size})
+                       </button>
+                       <button 
+                           onClick={handleIgnoreSelected}
+                           className="flex items-center gap-2 px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors text-sm font-medium whitespace-nowrap"
+                           title="Add selected to Ignore List (Do not track)"
+                       >
+                           <EyeOff size={16} />
+                           Ignore ({selectedSymbols.size})
+                       </button>
+                       <button 
+                           onClick={handleManualRefresh}
+                           className="flex items-center gap-2 px-3 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-colors text-sm font-medium whitespace-nowrap"
+                           title="Force Refresh Selected"
+                       >
+                           <RefreshCw size={16} />
+                           Refresh
+                       </button>
+                   </div>
                ) : (
                    <button 
                        onClick={handleManualRefresh}
-                       className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-indigo-600 hover:bg-gray-50 rounded-lg transition-colors text-sm font-medium whitespace-nowrap"
-                       title={selectedSymbols.size > 0 ? "Refresh Selected (Forces Update)" : "Refresh List"}
+                       className="p-2 text-gray-600 hover:text-indigo-600 hover:bg-gray-50 rounded-lg transition-colors border border-transparent hover:border-gray-200"
+                       title="Refresh List"
                    >
-                       <RefreshCw size={16} />
-                       {selectedSymbols.size > 0 ? `Refresh (${selectedSymbols.size})` : ''}
+                       <RefreshCw size={20} />
                    </button>
                )}
            </div>
@@ -346,7 +431,6 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
                        symbol={symbol}
                        insights={insights}
                        isTracked={isTracked(symbol, 'STOCK')}
-                       onToggleTrack={() => handleToggleTrack(symbol)}
                        onOpenDeepDive={() => onSelectStock(symbol, symbol)}
                        onAskAI={() => onOpenChat(insights.map(i => ({ symbol, type: i.type, insight: i.text, rawData: i.data })))}
                        onRefresh={() => handleCardRefresh(symbol)}
@@ -366,7 +450,7 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
                ) : (
                    <>
                       <p className="text-gray-500">No stocks found matching your criteria.</p>
-                      <p className="text-xs text-gray-400 mt-1">Try changing the filter or refreshing analysis.</p>
+                      <p className="text-xs text-gray-400 mt-1">Try changing the filter, search query, or refreshing analysis.</p>
                    </>
                )}
            </div>

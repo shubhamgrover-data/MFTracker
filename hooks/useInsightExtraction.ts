@@ -1,9 +1,11 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { initiateBulkInsightExtraction, pollBulkInsightStatus } from '../services/dataService';
+import { initiateBulkInsightExtraction, pollBulkInsightStatus, fetchStockSecInfo } from '../services/dataService';
 import { processRawInsightData } from '../services/geminiService';
 import { getTopElementInnerHTML } from '../services/helper';
 import { InsightResultItem, PollStatusResponse } from '../types/trackingTypes';
+
+const MAX_CONCURRENT_REQUESTS = 5;
 
 export const useInsightExtraction = () => {
   const [results, setResults] = useState<Record<string, InsightResultItem[]>>({});
@@ -21,81 +23,111 @@ export const useInsightExtraction = () => {
   // Track ongoing Gemini processing to prevent duplicate calls
   const processingRef = useRef<Set<string>>(new Set());
 
+  // --- Queue Management State ---
+  const pendingBatchesRef = useRef<string[][]>([]);
+  const initiatingCountRef = useRef(0);
+  const invalidateCacheRef = useRef(false);
+  
+  // Signal to trigger queue processing checks
+  const [queueTick, setQueueTick] = useState(0);
+
   const startExtraction = useCallback(async (symbols: string[], batchSize = 10, invalidateCache = false) => {
     if (symbols.length === 0) return;
 
-    // IMPORTANT: Do NOT clear results here. 
-    // Clearing results causes the UI to flash empty and can trigger infinite loops 
-    // in components that check for missing results to initiate fetching.
-    // setResults({}); 
-
+    // Reset Batches Progress (New extraction cycle for these symbols)
+    // Note: We don't clear 'results' to prevent UI flashing, but we reset tracking of current operation
     setBatchProgress({});
     setActiveRequestIds(new Set());
     
-    // We only clear processing cache for the symbols we are about to fetch if we wanted a hard refresh,
-    // but for now we keep it simple to avoid aggressive reprocessing.
+    // We only clear processing cache for the symbols we are about to fetch
+    // But simplistic approach is to clear all for fresh fetching session
     // processingRef.current.clear(); 
 
     setStatus('initializing');
     setProgress({ completed: 0, total: symbols.length });
 
-    // Create Batches
-    const batches: string[][] = [];
+    // Setup Queue
+    pendingBatchesRef.current = [];
     for (let i = 0; i < symbols.length; i += batchSize) {
-      batches.push(symbols.slice(i, i + batchSize));
+      pendingBatchesRef.current.push(symbols.slice(i, i + batchSize));
     }
+    invalidateCacheRef.current = invalidateCache;
+    initiatingCountRef.current = 0;
 
-    console.log(`[useInsightExtraction] Starting ${batches.length} batches of size ${batchSize} with invalidateCache=${invalidateCache}`);
+    console.log(`[useInsightExtraction] Queued ${pendingBatchesRef.current.length} batches. Concurrency Limit: ${MAX_CONCURRENT_REQUESTS}`);
 
-    // Process Batches in Parallel
-    let initiatedBatches = 0;
-
-    batches.forEach(async (batch, index) => {
-      try {
-        const response = await initiateBulkInsightExtraction(batch, invalidateCache);
-        
-        if (response && response.requestId) {
-          const rId = response.requestId;
-          
-          // Register the new batch
-          setActiveRequestIds(prev => new Set(prev).add(rId));
-          setBatchProgress(prev => ({
-            ...prev,
-            [rId]: { completed: 0, total: response.totalStocks }
-          }));
-          
-          // If we have at least one active, we are polling
-          setStatus('polling');
-        } else {
-            console.error(`Batch ${index + 1} failed to initiate`);
-        }
-      } catch (e) {
-        console.error(`Error initiating batch ${index + 1}`, e);
-      } finally {
-        initiatedBatches++;
-        // If all tried and none succeeded (status still initializing), mark error
-        if (initiatedBatches === batches.length) {
-             setActiveRequestIds(current => {
-                 if (current.size === 0) setStatus('error');
-                 return current;
-             });
-        }
-      }
-    });
+    // Trigger queue processing
+    setQueueTick(prev => prev + 1);
   }, []);
+
+  // --- Queue Processing Logic ---
+  useEffect(() => {
+    const processQueue = async () => {
+        // Current Load = Active Polling Requests + Requests currently initiating (network flight)
+        const currentLoad = activeRequestIds.size + initiatingCountRef.current;
+        
+        if (currentLoad >= MAX_CONCURRENT_REQUESTS) {
+            // console.log(`[Queue] Max concurrency reached (${currentLoad}/${MAX_CONCURRENT_REQUESTS}). Waiting...`);
+            return;
+        }
+
+        if (pendingBatchesRef.current.length === 0) return;
+
+        // Calculate how many batches we can launch
+        const slotsAvailable = MAX_CONCURRENT_REQUESTS - currentLoad;
+        const batchesToLaunch = pendingBatchesRef.current.splice(0, slotsAvailable);
+
+        if (batchesToLaunch.length > 0) {
+            console.log(`[Queue] Launching ${batchesToLaunch.length} batches. Remaining in queue: ${pendingBatchesRef.current.length}`);
+            
+            batchesToLaunch.forEach(async (batch) => {
+                initiatingCountRef.current += 1;
+                try {
+                    const response = await initiateBulkInsightExtraction(batch, invalidateCacheRef.current);
+                    if (response && response.requestId) {
+                        const rId = response.requestId;
+                        console.log(`[Queue] Batch initiated. ID: ${rId}`);
+                        
+                        // Register batch for polling
+                        setBatchProgress(prev => ({
+                            ...prev,
+                            [rId]: { completed: 0, total: response.totalStocks }
+                        }));
+                        setActiveRequestIds(prev => new Set(prev).add(rId));
+                        setStatus('polling');
+                    } else {
+                        console.error("Batch failed to initiate properly");
+                    }
+                } catch (e) {
+                    console.error("Error initiating batch", e);
+                } finally {
+                    initiatingCountRef.current -= 1;
+                    // Trigger check again as slot opened (or failed)
+                    setQueueTick(prev => prev + 1);
+                }
+            });
+        }
+    };
+
+    processQueue();
+  }, [queueTick, activeRequestIds.size]); // Re-run when queueTick updates or active requests change (completion)
+
 
   // --- Polling Logic for Multiple Batches ---
   useEffect(() => {
-    // If no active requests, we might be done or idle
-    if (activeRequestIds.size === 0) {
+    // Check for completion of all tasks
+    if (activeRequestIds.size === 0 && pendingBatchesRef.current.length === 0 && initiatingCountRef.current === 0) {
       if (status === 'polling') {
+          console.log("[useInsightExtraction] All batches completed.");
           setStatus('completed');
       }
       return;
     }
 
+    if (activeRequestIds.size === 0) return;
+
     const pollAll = async () => {
-      const ids = Array.from(activeRequestIds);
+      const ids = Array.from(activeRequestIds) as string[];
       
       await Promise.all(ids.map(async (id) => {
         const data = await pollBulkInsightStatus(id);
@@ -133,13 +165,16 @@ export const useInsightExtraction = () => {
             [id]: { completed: data.completedStocks, total: data.totalStocks }
           }));
 
-          // 3. Check for Completion
+          // 3. Check for Completion of this batch
           if (data.status === 'resolved' || (data.totalStocks > 0 && data.completedStocks >= data.totalStocks)) {
+            console.log(`[Polling] Batch ${id} completed.`);
             setActiveRequestIds(prev => {
               const next = new Set(prev);
               next.delete(id);
               return next;
             });
+            // Slot opened, check queue
+            setQueueTick(prev => prev + 1);
           }
         }
       }));
@@ -153,20 +188,29 @@ export const useInsightExtraction = () => {
   useEffect(() => {
       if (Object.keys(batchProgress).length === 0) return;
 
-      const totals = Object.values(batchProgress).reduce((acc, curr) => ({
+      const totals = Object.values(batchProgress).reduce<{ completed: number; total: number }>((acc, curr) => ({
           completed: acc.completed + curr.completed,
           total: acc.total + curr.total
       }), { completed: 0, total: 0 });
 
-      // Only update if total > 0 to avoid flickers
+      // Add pending items to total count to show real progress relative to initial request
+      const pendingCount = pendingBatchesRef.current.reduce((acc, batch) => acc + batch.length, 0);
+      const initiatingCount = initiatingCountRef.current * 10; // Approx
+      
+      // If we are just starting, ensure total reflects input
       if (totals.total > 0) {
-          setProgress(totals);
+          setProgress({
+              completed: totals.completed,
+              // Use the max of tracked total vs computed to avoid progress bar jumping back
+              total: Math.max(totals.total + pendingCount, progress.total)
+          });
       }
-  }, [batchProgress]);
+  }, [batchProgress, queueTick]); // queueTick dependency helps update when pending queue changes
 
   // --- Gemini Processing Logic ---
   useEffect(() => {
-    Object.entries(results).forEach(([symbol, items]) => {
+    Object.entries(results).forEach(([symbol, val]) => {
+      const items = val as InsightResultItem[];
       items.forEach(async (item) => {
         const uniqueKey = `${symbol}-${item.indicatorName}`;
         
@@ -189,6 +233,17 @@ export const useInsightExtraction = () => {
                 let jsonObj;
                 try {
                     jsonObj = JSON.parse(jsonStr);
+                    // MERGE NSE DATA FOR PE CARD
+                    if (item.indicatorName === 'PE') {
+                         try {
+                             const secInfo = await fetchStockSecInfo(symbol);
+                             if (secInfo) {
+                                 jsonObj.secInfo = secInfo;
+                             }
+                         } catch(e) {
+                             console.warn(`Failed to fetch NSE SecInfo for ${symbol}`, e);
+                         }
+                    }
                 } catch(e) {
                     jsonObj = { error: "Failed to parse data output", raw: jsonStr };
                 }

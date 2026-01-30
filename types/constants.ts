@@ -188,3 +188,19 @@ export const INSIGHT_TEXT_TEMPLATES = {
   RECENT_BULK_DEAL: "Big Money Movement: Recent bulk/block deal detected for {symbol} this month. {details}",
   RECENT_INSIDER_DEAL: "Insider Action: Recent insider trading activity reported for {symbol} this month. {details}"
 };
+
+// Market Overview Configuration, changed to see relevant info
+export const MARKET_OVERVIEW_INDICES = [
+  "NIFTY 50", 
+  "NIFTY NEXT 50", 
+  "NIFTY MIDCAP 150", 
+  "NIFTY SMALLCAP 250",
+  "NIFTY 500", 
+  "NIFTY TOTAL MARKET"
+  //"INDIA VIX" no need removed intentionally
+];
+
+export const HEADER_INDICES = [
+  "NIFTY 50",
+  "NIFTY BANK"
+];

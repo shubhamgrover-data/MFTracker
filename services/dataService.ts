@@ -1,8 +1,9 @@
 
 import { FundSnapshot, StockHolding, StockMFAnalysis, MutualFundHolding, MFHoldingHistory, StockPriceData, FundPortfolioHolding, FundSearchResult, FundPortfolioData, FundMeta, SectorDistribution, HoldingHistoryItem } from '../types';
-import { StockDataRequestItem, BulkExtractResponse, PollStatusResponse } from '../types/trackingTypes';
+import { StockDataRequestItem, BulkExtractResponse, PollStatusResponse, MarketIndexData, FiiDiiData, FiiDiiMetric } from '../types/trackingTypes';
 import { generateInsightConfig } from './trackingStorage';
 import { extractStockDataFromHtml } from './geminiService';
+import { extractMultipleAttributes } from './helper';
 import * as XLSX from 'xlsx';
 
 const PROXY_BASE_URL = "https://stockmarketdata.linkpc.net/api/extract-data";
@@ -27,8 +28,6 @@ export const fetchFromProxy = async (targetUrl: string, options: ProxyOptions = 
   if (options.attributeValue) url.searchParams.append('attributeValue', options.attributeValue);
   if (options.tagName) url.searchParams.append('tagName', options.tagName);
 
-  console.log(`Fetching from proxy: ${url.toString()}`);
-  
   const response = await fetch(url.toString());
   if (!response.ok) {
       throw new Error(`Proxy request failed with status ${response.status}: ${response.statusText}`);
@@ -111,7 +110,7 @@ export const initiateBulkInsightExtraction = async (symbols: string[], invalidat
   try {
     // 1. Resolve Metadata for all stocks
     const requestPayload: StockDataRequestItem[] = [];
-    //console.log(symbols);
+    
     // Fetch metadata for all symbols in parallel
     const metadataResults = await Promise.all(
         symbols.map(async (sym) => {
@@ -137,7 +136,7 @@ export const initiateBulkInsightExtraction = async (symbols: string[], invalidat
     const url = new URL(BULK_API_URL);
     url.searchParams.append('BulkStocks', 'true');
     url.searchParams.append('invalidateCache', String(invalidateCache));
-    url.searchParams.append('mode','standalone'); 
+    url.searchParams.append('mode','standalone'); //use standalone always
 
     const response = await fetch(url.toString(), {
         method: 'POST',
@@ -323,8 +322,6 @@ const ensureFundListLoaded = async () => {
           type: "Equity Fund" // Default type as API response groups mixed categories
         })).filter(f => f.name !== "Unknown Fund" && f.url);
 
-        console.log(`Loaded ${fundListCache.length} funds into cache.`);
-
       } catch (e) {
         console.error("Error fetching MF Master List", e);
         fundListCache = [];
@@ -342,6 +339,12 @@ export const searchFundsFromMasterList = async (query: string): Promise<FundSear
   const lowerQ = query.toLowerCase();
   // Filter by name and return top 20
   return fundListCache.filter(f => f.name.toLowerCase().includes(lowerQ)).slice(0, 20);
+};
+
+export const reloadFundMasterList = async () => {
+    fundListCache = null;
+    fundListPromise = null;
+    await ensureFundListLoaded();
 };
 
 // --- Master Index List Fetcher ---
@@ -383,6 +386,33 @@ export const fetchMasterIndicesList = async (): Promise<Array<{ name: string; ca
 
     } catch (e) {
         console.error("Error fetching Master Indices List", e);
+        return [];
+    }
+};
+
+// --- Market Indices Fetcher ---
+export const fetchMarketIndices = async (): Promise<MarketIndexData[]> => {
+    try {
+        const url = "https://www.nseindia.com/api/allIndices";
+        const data = await fetchFromProxy(url);
+        
+        let jsonData = data;
+        if (typeof data === 'string') {
+            try {
+                jsonData = JSON.parse(data);
+            } catch (e) {
+                console.error("Failed to parse Market Indices JSON", e);
+                return [];
+            }
+        }
+
+        if (jsonData && Array.isArray(jsonData.data)) {
+            return jsonData.data as MarketIndexData[];
+        }
+        
+        return [];
+    } catch (e) {
+        console.error("Error fetching Market Indices", e);
         return [];
     }
 };
@@ -545,7 +575,6 @@ export const fetchMutualFundHoldingsForStock = async (symbol: string): Promise<S
     
     // 1. Get Stock PK
     const pkData = await fetchFromProxy(pkUrl, { attribute: 'data-stock-pk' });
-    console.log("Stock PK Response:", pkData);
 
     let stockPk = pkData;
     if (typeof pkData === 'object' && pkData !== null) {
@@ -555,7 +584,6 @@ export const fetchMutualFundHoldingsForStock = async (symbol: string): Promise<S
 
     // 2. Get Stock Slug
     const slugData = await fetchFromProxy(pkUrl, { attribute: 'data-stockslugname' });
-    console.log("Stock Slug Response:", slugData);
 
     let stockSlug = slugData;
     if (typeof slugData === 'object' && slugData !== null) {
@@ -572,8 +600,6 @@ export const fetchMutualFundHoldingsForStock = async (symbol: string): Promise<S
       tagName: 'table'
     });
     
-    console.log("Raw Holdings Response:", rawHoldingsData);
-
     // Robust check for response structure
     let dataToParse = rawHoldingsData;
     if (!Array.isArray(rawHoldingsData)) {
@@ -596,7 +622,7 @@ export const fetchMutualFundHoldingsForStock = async (symbol: string): Promise<S
       const matches = fundUrl.match(/\d+/g);
       const mfPk = matches ? Number(matches[matches.length - 1]) : null;
       const historyUrl = `https://trendlyne.com/mutual-fund/holding-history/${mfPk}/${stockPk}`;
-      console.log(historyUrl);
+      
       // Extract dynamic month keys
       const history: MFHoldingHistory[] = [];
       const keys = Object.keys(item);
@@ -707,4 +733,150 @@ if (indexName === "NIFTY 50" && !data) {
     console.error(`Failed to fetch index constituents for ${indexName}:`, error);
     return [];
   }
+};
+
+export const fetchStockSecInfo = async (symbol: string) => {
+    try {
+        const encodedSymbol = encodeURIComponent(symbol);
+        const url = `https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi?functionName=getSymbolData&marketType=N&series=EQ&symbol=${encodedSymbol}`;
+        const data = await fetchFromProxy(url);
+        
+        let jsonData = data;
+        // Parse if it's a string
+        if (typeof data === 'string') {
+            try {
+                jsonData = JSON.parse(data);
+            } catch (e) {
+                console.error(`Failed to parse NSE Sec Info JSON for ${symbol}`, e);
+                return null;
+            }
+        }
+        
+        // Handle proxy returning object wrapper with 'rawValue' or similar, if applicable
+        if (jsonData && typeof jsonData === 'object' && !jsonData.equityResponse) {
+             // Attempt to find nested JSON if proxy wrapped it differently
+             if (jsonData.rawValue) {
+                 try {
+                     jsonData = JSON.parse(jsonData.rawValue);
+                 } catch(e) {}
+             }
+        }
+
+        if (jsonData && jsonData.equityResponse && Array.isArray(jsonData.equityResponse) && jsonData.equityResponse.length > 0) {
+            return jsonData.equityResponse[0].secInfo;
+        }
+        
+        console.warn(`No valid equityResponse found for ${symbol}`, jsonData);
+        return null;
+    } catch (e) {
+        console.error(`Error fetching NSE Sec Info for ${symbol}`, e);
+        return null;
+    }
+}
+
+// --- FII/DII Data Fetcher ---
+
+const FII_DII_STORAGE_KEY = 'fundflow_fii_dii_data';
+
+export const fetchFiiDiiActivity = async (forceRefresh: boolean = false): Promise<FiiDiiData | null> => {
+    try {
+        // 1. Check Storage cache
+        if (!forceRefresh) {
+            const stored = localStorage.getItem(FII_DII_STORAGE_KEY);
+            if (stored) {
+                const parsed: FiiDiiData = JSON.parse(stored);
+                // Check if data is from today (or reasonable timeframe, e.g., 20 hours to be safe for daily updates)
+                // However, user requested caching unless explicit refresh.
+                // We will just return cached data if available.
+                return parsed;
+            }
+        }
+
+        // 2. Fetch HTML via Proxy
+        const targetUrl = "https://trendlyne.com/macro-data/fii-dii/latest/cash-pastmonth/";
+        const htmlContent = await fetchFromProxy(targetUrl);
+        
+        if (!htmlContent || typeof htmlContent !== 'string') {
+            throw new Error("Invalid HTML content for FII/DII");
+        }
+
+        // 3. Extract JSON using helper
+        // The attribute holding the JSON string is 'data-jsondata'
+        const extracted = extractMultipleAttributes(htmlContent, ['data-jsondata']);
+        const jsonDataEntries = extracted['data-jsondata'];
+        
+        // Find the specific element ID asked
+        const targetElement = jsonDataEntries.find(e => e.elementId === 'cash-table-main-pastmonth');
+        
+        if (!targetElement || !targetElement.attributeValue) {
+             throw new Error("Target element for FII/DII not found");
+        }
+
+        // 4. Parse Inner JSON
+        const innerJson = JSON.parse(targetElement.attributeValue);
+        const rows = innerJson.data as any[][];
+        // Headers mapping based on provided example:
+        // index 0: date label (e.g. "Last 30 Days", date string)
+        // index 3: FII Net
+        // index 4: DII Net
+        
+        // 5. Transform Data
+        const history: FiiDiiMetric[] = [];
+        
+        // We look for specific rows or map all. 
+        // Typically the table has: Specific Dates, "Last 1 Week", "Last 2 Weeks", "Last 30 Days"
+        
+        // Find "Latest" (usually the first row with a date-like string or "Today")
+        // Actually, the example shows "Last 30 Days" as first row in the sample, 
+        // but typically Trendlyne shows daily data rows first then summary rows at bottom?
+        // Let's assume the rows contain mixed data. We want specific aggregates.
+        
+        let latestMetric: FiiDiiMetric | null = null;
+
+        rows.forEach(row => {
+            const label = String(row[0]);
+            const fiiNet = parseFloat(String(row[3])) || 0;
+            const diiNet = parseFloat(String(row[4])) || 0;
+
+            // Check if it's a date (e.g., "18 Feb 2025")
+            // Simple check: contains year or looks like date
+            const isDate = label.match(/\d{4}/) || label.match(/[A-Z][a-z]{2}\s\d{1,2}/);
+            
+            if (isDate) {
+                 // It's a daily record. The first one we find (top of list) is likely latest if sorted desc
+                 if (!latestMetric) {
+                     latestMetric = { period: label, fiiNet, diiNet };
+                 }
+            }
+            
+            // Check for aggregates
+            if (label.includes("Last 1 Week") || label.includes("Last 2 Weeks") || label.includes("Last 30 Days")) {
+                history.push({ period: label, fiiNet, diiNet });
+            }
+        });
+        
+        // If latestMetric is null (maybe table structure diff), take the first row if it's not an aggregate
+        if (!latestMetric && rows.length > 0 && !String(rows[0][0]).includes("Last")) {
+             const r = rows[0];
+             latestMetric = { period: String(r[0]), fiiNet: parseFloat(String(r[3])) || 0, diiNet: parseFloat(String(r[4])) || 0 };
+        }
+
+        const result: FiiDiiData = {
+            latest: latestMetric,
+            history: history,
+            lastUpdated: Date.now()
+        };
+
+        // 6. Cache
+        localStorage.setItem(FII_DII_STORAGE_KEY, JSON.stringify(result));
+
+        return result;
+
+    } catch (e) {
+        console.error("Error fetching FII/DII Activity", e);
+        // Return cached if available on error
+        const stored = localStorage.getItem(FII_DII_STORAGE_KEY);
+        if (stored) return JSON.parse(stored);
+        return null;
+    }
 };
