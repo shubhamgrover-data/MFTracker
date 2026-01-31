@@ -2,10 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Loader2, RefreshCw, MessageSquare, Check, LayoutGrid, List, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { TrackedItem } from '../../services/trackingStorage';
-import { initiateBulkInsightExtraction, pollBulkInsightStatus, fetchStockSecInfo } from '../../services/dataService';
-import { PollStatusResponse, InsightResultItem } from '../../types/trackingTypes';
-import { processRawInsightData } from '../../services/geminiService';
-import { getTopElementInnerHTML} from '../../services/helper.ts';
+import { InsightResultItem } from '../../types/trackingTypes';
 
 // Import Card Components
 import BaseInsightCard from './cards/BaseInsightCard';
@@ -21,15 +18,14 @@ import DefaultInsightCard from './cards/DefaultInsightCard';
 
 interface BulkInsightManagerProps {
   items: TrackedItem[];
-  // State lifted to parent
-  results: Record<string, InsightResultItem[]>;
-  setResults: React.Dispatch<React.SetStateAction<Record<string, InsightResultItem[]>>>;
-  status: 'idle' | 'initializing' | 'polling' | 'completed' | 'error';
-  setStatus: React.Dispatch<React.SetStateAction<'idle' | 'initializing' | 'polling' | 'completed' | 'error'>>;
-  progress: { completed: number; total: number };
-  setProgress: React.Dispatch<React.SetStateAction<{ completed: number; total: number }>>;
-  requestId: string | null;
-  setRequestId: React.Dispatch<React.SetStateAction<string | null>>;
+  // Replaced individual state props with hook object
+  extractionData: {
+      results: Record<string, InsightResultItem[]>;
+      status: 'idle' | 'initializing' | 'polling' | 'completed' | 'error';
+      startExtraction: (symbols: string[], batchSize?: number, invalidateCache?: boolean) => Promise<void>;
+      progress: { completed: number; total: number };
+      setResults: React.Dispatch<React.SetStateAction<Record<string, InsightResultItem[]>>>;
+  };
   onOpenChat: (context: any[]) => void;
   onSelectStock: (symbol: string, name: string) => void;
 }
@@ -106,17 +102,11 @@ const MultiSelect: React.FC<MultiSelectProps> = ({ label, options, selected, onC
 
 const BulkInsightManager: React.FC<BulkInsightManagerProps> = ({ 
   items, 
-  results, 
-  setResults, 
-  status, 
-  setStatus, 
-  progress, 
-  setProgress, 
-  requestId, 
-  setRequestId,
+  extractionData,
   onOpenChat,
   onSelectStock
 }) => {
+  const { results, status, startExtraction, progress, setResults } = extractionData;
   
   // Local UI State
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
@@ -131,9 +121,6 @@ const BulkInsightManager: React.FC<BulkInsightManagerProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   
-  // Track ongoing Gemini processing to prevent duplicate calls
-  const processingRef = useRef<Set<string>>(new Set());
-
   // Reset pagination when filters change
   useEffect(() => {
     setCurrentPage(1);
@@ -141,28 +128,13 @@ const BulkInsightManager: React.FC<BulkInsightManagerProps> = ({
 
   // --- Actions ---
 
-  const startExtraction = async () => {
+  const handleStartExtraction = () => {
     setResults({});
     const stockSymbols = items.filter(i => i.type === 'STOCK').map(i => i.id);
     if (stockSymbols.length === 0) return;
-
-    setStatus('initializing');
-    setProgress({ completed: 0, total: stockSymbols.length });
     
-    // Clear old requestId to stop any previous polling
-    setRequestId(null); 
-    // Clear processing cache to allow re-parsing on fresh fetch
-    processingRef.current.clear();
-    
-    const response = await initiateBulkInsightExtraction(stockSymbols);
-    
-    if (response && response.requestId) {
-      setRequestId(response.requestId);
-      setStatus('polling');
-      setProgress({ completed: 0, total: response.totalStocks });
-    } else {
-      setStatus('error');
-    }
+    // Batch size of 10 enforced here as per requirement
+    startExtraction(stockSymbols, 10, true);
   };
 
   // --- Auto Fetch Logic ---
@@ -171,6 +143,7 @@ const BulkInsightManager: React.FC<BulkInsightManagerProps> = ({
     const hasItems = stockItems.length > 0;
     
     // Check if we are missing results for any tracked stock
+    // We check if result exists and has items
     const missingResults = stockItems.some(i => !results[i.id] || results[i.id].length === 0);
 
     const shouldFetch = hasItems && 
@@ -179,151 +152,11 @@ const BulkInsightManager: React.FC<BulkInsightManagerProps> = ({
                         (status === 'idle' || missingResults);
 
     if (shouldFetch) {
-        startExtraction();
+        const stockSymbols = stockItems.map(i => i.id);
+        // Batch size 10, no invalidate for auto-fetch
+        startExtraction(stockSymbols, 10, false);
     }
-  }, [items, status, results]); 
-
-  // --- Polling Logic ---
-  useEffect(() => {
-    let intervalId: ReturnType<typeof setInterval>;
-
-    const poll = async () => {
-      if (!requestId || status !== 'polling') return;
-
-      const data = await pollBulkInsightStatus(requestId);
-      
-      if (data) {
-        setProgress({ completed: data.completedStocks, total: data.totalStocks });
-        handleNewResults(data);
-
-        if (data.status === 'resolved' || (data.totalStocks > 0 && data.completedStocks === data.totalStocks)) {
-          setStatus('completed');
-          setRequestId(null);
-        }
-      }
-    };
-
-    if (status === 'polling') {
-      poll();
-      intervalId = setInterval(poll, 5000);
-    }
-
-    return () => clearInterval(intervalId);
-  }, [requestId, status]);
-
-  const handleNewResults = (data: PollStatusResponse) => {
-    setResults(prev => {
-      const next = { ...prev };
-      // Deep merge logic
-      for (const [symbol, val] of Object.entries(data.results)) {
-        const newItems = val as InsightResultItem[];
-        const existingItems = next[symbol] || [];
-        const mergedItems = [...existingItems];
-        newItems.forEach(newItem => {
-           const index = mergedItems.findIndex(i => i.indicatorName === newItem.indicatorName);
-           if (index > -1) {
-               const existing = mergedItems[index];
-               
-               // CRITICAL FIX: Do not overwrite parsed JSON with raw HTML string from polling
-               // If existing is JSON and new is string, keep existing data but update other fields if needed.
-               if (existing.type === 'json' && typeof newItem.data === 'string') {
-                   mergedItems[index] = {
-                       ...newItem,
-                       data: existing.data, // Preserve parsed JSON
-                       type: existing.type
-                   };
-               } else {
-                   mergedItems[index] = newItem;
-               }
-           } else {
-               mergedItems.push(newItem);
-           }
-        });
-        next[symbol] = mergedItems;
-      }
-      return next;
-    });
-  };
-
-  // --- Gemini Processing Logic for HTML Content ---
-  useEffect(() => {
-    Object.entries(results).forEach(([symbol, items]) => {
-      (items as InsightResultItem[]).forEach(async (item) => {
-        const uniqueKey = `${symbol}-${item.indicatorName}`;
-        
-        // If item requires parsing, is raw HTML string, matches simple HTML check, and isn't processing
-        if (item.geminiParsingReq && 
-            item.success && 
-            typeof item.data === 'string' && 
-            item.data.trim().startsWith('<') &&
-            !processingRef.current.has(uniqueKey)
-        ) {
-            processingRef.current.add(uniqueKey);
-            
-            try {
-                // Call Parsing Service (Refactored to local DOM parsing)
-                let dataToParse = item.data;
-                if(item.indicatorName === "Insider/SAST Deals") {
-                  dataToParse = getTopElementInnerHTML(item.data);
-                }
-                
-                const jsonStr = await processRawInsightData(dataToParse, item.geminiPrompt, item.indicatorName);
-                
-                let jsonObj;
-                try {
-                    jsonObj = JSON.parse(jsonStr);
-                    // MERGE NSE DATA FOR PE CARD (Fix for Tracked Assets view)
-                    if (item.indicatorName === 'PE') {
-                         try {
-                             const secInfo = await fetchStockSecInfo(symbol);
-                             if (secInfo) {
-                                 jsonObj.secInfo = secInfo;
-                             }
-                         } catch(e) {
-                             console.warn(`Failed to fetch NSE SecInfo for ${symbol}`, e);
-                         }
-                    }
-                } catch(e) {
-                    jsonObj = { error: "Failed to parse data output", raw: jsonStr };
-                }
-
-                // Update State with JSON data
-                setResults(prev => {
-                    const next = { ...prev };
-                    const symItems = [...(next[symbol] || [])];
-                    const itemIdx = symItems.findIndex(i => i.indicatorName === item.indicatorName);
-                    if (itemIdx > -1) {
-                        symItems[itemIdx] = {
-                            ...symItems[itemIdx],
-                            data: jsonObj,
-                            type: 'json'
-                        };
-                    }
-                    next[symbol] = symItems;
-                    return next;
-                });
-            } catch (err) {
-                console.error("Processing failed for", uniqueKey);
-                // Mark as failed state so we don't retry continuously
-                setResults(prev => {
-                    const next = { ...prev };
-                    const symItems = [...(next[symbol] || [])];
-                    const itemIdx = symItems.findIndex(i => i.indicatorName === item.indicatorName);
-                    if (itemIdx > -1) {
-                        symItems[itemIdx] = {
-                            ...symItems[itemIdx],
-                            data: { error: "Processing failed" },
-                            type: 'json'
-                        };
-                    }
-                    next[symbol] = symItems;
-                    return next;
-                });
-            }
-        }
-      });
-    });
-  }, [results]);
+  }, [items, status, results, startExtraction]); 
 
   // --- Selection Logic ---
 
@@ -511,7 +344,7 @@ const BulkInsightManager: React.FC<BulkInsightManagerProps> = ({
                 </div>
             ) : (
                 <button 
-                    onClick={startExtraction}
+                    onClick={handleStartExtraction}
                     className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded-lg transition-colors border border-transparent hover:border-gray-200"
                     title="Refresh Data"
                 >
@@ -556,9 +389,10 @@ const BulkInsightManager: React.FC<BulkInsightManagerProps> = ({
           {paginatedItems.map(({ symbol, item }, idx) => {
               const cardKey = `${symbol}|${item.indicatorName}`;
               const isSelected = selectedCards.has(cardKey);
-              // Fix logic: only show processing if it's NOT JSON yet AND still in ref list. 
-              // Once it is JSON, we show it.
-              const isProcessing = item.type !== 'json' && processingRef.current.has(`${symbol}-${item.indicatorName}`);
+              // Hook handles 'json' type conversion, so non-json means still processing or raw
+              // Fix: For Technical cards (and other non-Gemini cards), they don't convert to 'json' via the hook
+              // so we shouldn't wait for 'json' type if geminiParsingReq is false.
+              const isProcessing = item.success && item.geminiParsingReq && item.type !== 'json';
 
               return (
                   <BaseInsightCard

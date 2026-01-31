@@ -1,4 +1,5 @@
 
+
 export type EntityType = 'STOCK' | 'MF';
 export type Sentiment = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
 
@@ -97,6 +98,7 @@ export interface IntelligentState {
 // Market Overview Data Structure
 export interface MarketIndexData {
     index: string;
+    indexSymbol:string;
     last: number;
     variation: number;
     percentChange: number;
@@ -119,6 +121,43 @@ export interface MarketIndexData {
     oneYearAgoVal?: number;
 }
 
+// Sectoral Pulse Data Types
+export interface SectorPulseItem {
+    name: string;
+    type: 'SECTOR' | 'INDUSTRY' | 'INDEX';
+    currentVal?: number;
+    changePercent: number;
+    advances: number;
+    declines: number;
+    pe?: number;
+    pb?: number;
+    oneWeekChange?: number;
+    oneMonthChange?: number;
+    oneYearChange?: number;
+    url?: string;
+    // For Indices specifically
+    yearHigh?: number;
+    yearLow?: number;
+}
+
+export interface SectoralData {
+    sectors: SectorPulseItem[];
+    industries: SectorPulseItem[];
+    indices: SectorPulseItem[];
+    lastUpdated: number;
+}
+
+export interface SectorInsightItem {
+    id: number | string;
+    name: string; // Symbol
+    tooltip_stock_name: string; // Company Name
+    cell_url: string;
+    value: number; // Change value (positive/negative)
+    param_value: number; 
+    disp_value: string; // Display string e.g. "4.6%"
+    color: string;
+}
+
 // FII DII Data Types
 export interface FiiDiiMetric {
     period: string; // "Daily", "1 Week", "2 Weeks", "30 Days"
@@ -130,4 +169,19 @@ export interface FiiDiiData {
     latest: FiiDiiMetric | null;
     history: FiiDiiMetric[];
     lastUpdated: number;
+}
+
+// Index Insights Types
+export interface IndexInsightItem {
+    symbol: string;
+    value?: number; // Generic value field (price, volume, points)
+    change?: number;
+    insightText: string;
+    type: 'positive' | 'negative' | 'neutral';
+}
+
+export interface IndexInsightCategory {
+    id: string;
+    title: string;
+    items: IndexInsightItem[];
 }

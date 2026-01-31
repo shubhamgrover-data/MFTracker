@@ -1,24 +1,37 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { MarketIndexData, FiiDiiData } from '../../types/trackingTypes';
+import { MarketIndexData, FiiDiiData, SectoralData } from '../../types/trackingTypes';
 import { addTrackedIndex, removeTrackedIndex } from '../../services/trackingStorage';
-import { fetchFiiDiiActivity } from '../../services/dataService';
-import {MARKET_OVERVIEW_INDICES} from '../../types/constants.ts'
-import { Activity, Search, RefreshCw, CheckSquare, Square, Loader2,TrendingUp,Calendar, DollarSign, ExternalLink } from 'lucide-react';
+import { fetchFiiDiiActivity, fetchStockQuote, fetchSectoralAnalysis } from '../../services/dataService';
+import { MARKET_OVERVIEW_INDICES, HEADER_INDICES } from '../../types/constants.ts'
+import { Activity, Search, RefreshCw, CheckSquare, Square, Loader2, TrendingUp, ExternalLink } from 'lucide-react';
+import IndexInsightsWidget from './IndexInsightsWidget';
+import PortfolioUpdates from './PortfolioMovers';
+import SectoralPulse from './SectoralPulse';
 
 interface MarketOverviewProps {
   indicesData: MarketIndexData[];
   trackedIndices: string[];
   onRefresh: () => void;
   loading: boolean;
+  onSelectStock?: (symbol: string, name: string) => void;
+  moversData: any[];
+  setMoversData: React.Dispatch<React.SetStateAction<any[]>>;
+  // Sectoral Data Props (Lifted from App.tsx or managed here if not persisted)
+  // For simplicity based on prompt requirement "State should be maintained", we assume props passed down.
+  sectoralData: SectoralData | null;
+  setSectoralData: React.Dispatch<React.SetStateAction<SectoralData | null>>;
 }
 
 const IndexRow: React.FC<{ 
     data: MarketIndexData, 
     isTracked: boolean, 
     onToggle: () => void,
-    isAlternate?: boolean 
-}> = ({ data, isTracked, onToggle, isAlternate }) => {
+    isAlternate?: boolean,
+    onSelectStock?: (symbol: string, name: string) => void,
+    onAddMover: (symbol: string) => void,
+    addedMovers: string[]
+}> = ({ data, isTracked, onToggle, isAlternate, onSelectStock, onAddMover, addedMovers }) => {
   
   const isPositive = data.percentChange >= 0;
   const colorClass = isPositive ? 'text-green-600' : 'text-red-600';
@@ -52,8 +65,32 @@ const IndexRow: React.FC<{
             </button>
         </td>
         
-        <td className="px-4 py-3 font-semibold text-gray-800 text-xs sm:text-sm">{data.index}</td>
-        <td className="px-4 py-3 text-right font-mono text-gray-700">{data.last.toLocaleString()}</td>
+        <td className="px-4 py-3">
+            <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-gray-800 text-xs sm:text-sm">{data.index}</span>
+                
+                {/* Integrate Insights Widget - Self Managed Mode */}
+                <IndexInsightsWidget 
+                    indexName={data.indexSymbol} 
+                    onAddToMover={onAddMover} 
+                    onNavigateStock={onSelectStock} 
+                    addedSymbols={addedMovers} 
+                />
+
+                {/* External Link to NSE Index Tracker */}
+                <a 
+                    href={`https://www.nseindia.com/index-tracker/${encodeURIComponent(data.indexSymbol)}`} 
+                    target="_blank" 
+                    rel="noreferrer"
+                    className="text-gray-300 hover:text-indigo-600 transition-colors opacity-0 group-hover:opacity-100"
+                    title={`View ${data.index} on NSE`}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <ExternalLink size={12} />
+                </a>
+            </div>
+        </td>
+        <td className="px-4 py-3 text-right font-mono text-gray-700">{data.last?.toLocaleString()}</td>
         <td className={`px-4 py-3 text-right font-medium ${colorClass}`}>
             {isPositive ? '+' : ''}{data.percentChange.toFixed(2)}%
         </td>
@@ -126,11 +163,23 @@ const IndexRow: React.FC<{
   );
 };
 
-//changed this function for requirement.. dont revert
-export const MarketOverview: React.FC<MarketOverviewProps> = ({ indicesData, trackedIndices, onRefresh, loading }) => {
+export const MarketOverview: React.FC<MarketOverviewProps> = ({ 
+    indicesData, 
+    trackedIndices, 
+    onRefresh, 
+    loading, 
+    onSelectStock, 
+    moversData, 
+    setMoversData,
+    sectoralData,
+    setSectoralData
+}) => {
   const [filterQuery, setFilterQuery] = useState('');
   const [fiiData, setFiiData] = useState<FiiDiiData | null>(null);
-
+  const [loadingMover, setLoadingMover] = useState(false);
+  const [loadingSector, setLoadingSector] = useState(false);
+  const [sectorDuration, setSectorDuration] = useState('1D'); // Default duration
+  
   // Use all indices available from the API and filter locally
   const filteredData = useMemo(() => {
       let data = [...indicesData]; // Copy array before sorting
@@ -139,7 +188,6 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({ indicesData, tra
           const lowerQ = filterQuery.toLowerCase();
           data = data.filter(i => i.index.toLowerCase().includes(lowerQ));
       }
-        //changed as part of requirement.. dont revert
       else {
           // If not searching, show only Default Overview + Tracked Indices
           data = data.filter(i => 
@@ -166,10 +214,35 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({ indicesData, tra
       loadFii();
   }, []);
 
+  // Fetch Sectoral Data if not present
+  useEffect(() => {
+      if (!sectoralData) {
+          loadSectorData('1D');
+      }
+  }, []);
+
+  const loadSectorData = async (duration: string) => {
+      setLoadingSector(true);
+      try {
+          const data = await fetchSectoralAnalysis(duration);
+          setSectoralData(data);
+      } catch (e) {
+          console.error(e);
+      } finally {
+          setLoadingSector(false);
+      }
+  };
+
+  const handleSectorDurationChange = (duration: string) => {
+      setSectorDuration(duration);
+      loadSectorData(duration);
+  };
+
   const handleRefreshAll = async () => {
       onRefresh(); // Refresh indices
       const data = await fetchFiiDiiActivity(true); // Force refresh FII
       setFiiData(data);
+      loadSectorData(sectorDuration); // Refresh Sector data
   };
 
   const handleToggleTrack = (indexName: string) => {
@@ -178,6 +251,62 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({ indicesData, tra
       } else {
           addTrackedIndex(indexName);
       }
+  };
+
+  const processQuoteData = (quote: any) => {
+      return {
+          symbol: quote.metaData.symbol,
+          companyName: quote.metaData.companyName,
+          lastPrice: quote.tradeInfo.lastPrice, 
+          change: quote.metaData.change,
+          pChange: quote.metaData.pChange,
+          pdSymbolPe: quote.secInfo?.pdSymbolPe,
+          pdSectorPe: quote.secInfo?.pdSectorPe,
+          yearHigh: quote.priceInfo?.yearHigh,
+          yearLow: quote.priceInfo?.yearLow,
+          sector: quote.secInfo?.sector,
+          basicIndustry: quote.secInfo?.basicIndustry,
+          indexList: quote.secInfo?.indexList || [],
+          // New Fields
+          delivery: quote.tradeInfo?.deliveryToTradedQuantity || quote.secInfo?.deliveryTotradedQuantity,
+          pdSectorInd: quote.secInfo?.pdSectorInd,
+          macro: quote.secInfo?.macro,
+          industryInfo: quote.secInfo?.industryInfo
+      };
+  };
+
+  const handleAddMover = async (symbol: string) => {
+      // Prevent duplicates
+      if (moversData.find(m => m.symbol === symbol)) return;
+      
+      setLoadingMover(true);
+      try {
+          const quote = await fetchStockQuote(symbol);
+          if (quote && quote.metaData) {
+              const processed = processQuoteData(quote);
+              setMoversData(prev => [...prev, processed]);
+          }
+      } catch (e) {
+          console.error("Failed to add mover", e);
+      } finally {
+          setLoadingMover(false);
+      }
+  };
+
+  const handleRefreshMover = async (symbol: string) => {
+      try {
+          const quote = await fetchStockQuote(symbol);
+          if (quote && quote.metaData) {
+              const processed = processQuoteData(quote);
+              setMoversData(prev => prev.map(m => m.symbol === symbol ? processed : m));
+          }
+      } catch(e) {
+          console.error(`Failed to refresh ${symbol}`, e);
+      }
+  };
+
+  const handleRemoveMover = (symbol: string) => {
+      setMoversData(prev => prev.filter(m => m.symbol !== symbol));
   };
 
   const TableHeader = () => (
@@ -196,13 +325,18 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({ indicesData, tra
   );
 
   const formatCurrency = (val: number) => {
+      if (val === undefined || val === null) return '-';
       return val.toLocaleString('en-IN', { maximumFractionDigits: 0 });
   };
+
+  // Get list of added mover symbols to pass to widgets
+  const moverSymbols = useMemo(() => moversData.map(m => m.symbol), [moversData]);
 
   return (
     <div className="flex flex-col gap-6 pb-10">
         <div className="space-y-4">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+               {/* ... Header Content ... */}
                <div className="flex items-center gap-4">
                    <div className="flex items-center gap-2">
                        <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg">
@@ -310,7 +444,10 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({ indicesData, tra
                                         data={data} 
                                         isTracked={trackedIndices.includes(data.index)}
                                         onToggle={() => handleToggleTrack(data.index)}
-                                        isAlternate={idx % 2 === 1} 
+                                        isAlternate={idx % 2 === 1}
+                                        onSelectStock={onSelectStock} 
+                                        onAddMover={handleAddMover}
+                                        addedMovers={moverSymbols}
                                     />
                                 ))}
                             </tbody>
@@ -323,38 +460,29 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({ indicesData, tra
                 )}
             </div>
         </div>
-        {/* Section 2: Portfolio Movers (Placeholder) */}
-        <div className="space-y-4 opacity-50 pointer-events-none grayscale">
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                    <div className="p-1.5 bg-gray-100 text-gray-500 rounded-lg">
-                        <TrendingUp size={18} />
-                    </div>
-                    <h3 className="text-lg font-bold text-gray-900">Portfolio Movers</h3>
-                </div>
-                <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded">Coming Soon</span>
-            </div>
-            <div className="bg-white p-8 rounded-xl border border-gray-200 text-center">
-                <p className="text-gray-400 text-sm">Top gainers, losers, and volume shockers from your tracking list.</p>
-            </div>
-        </div>
 
-        {/* Section 3: Sectoral Pulse (Placeholder) */}
-        <div className="space-y-4 opacity-50 pointer-events-none grayscale">
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                    <div className="p-1.5 bg-gray-100 text-gray-500 rounded-lg">
-                        <Calendar size={18} />
-                    </div>
-                    <h3 className="text-lg font-bold text-gray-900">Sectoral Pulse</h3>
-                </div>
-                <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded">Coming Soon</span>
-            </div>
-            <div className="bg-white p-8 rounded-xl border border-gray-200 text-center">
-                <p className="text-gray-400 text-sm">Sector-wise performance and rotation analysis.</p>
-        </div>
+        {/* Section 2: Portfolio Updates */}
+        <PortfolioUpdates 
+            moversData={moversData} 
+            onAddMover={handleAddMover} 
+            onRefreshMover={handleRefreshMover}
+            onRemoveMover={handleRemoveMover}
+            isLoadingExternal={loadingMover}
+            onViewDetails={onSelectStock} 
+        />
+
+        {/* Section 3: Sectoral/Industrial Pulse */}
+        <SectoralPulse 
+            data={sectoralData}
+            loading={loadingSector}
+            onRefresh={() => loadSectorData(sectorDuration)}
+            duration={sectorDuration}
+            onDurationChange={handleSectorDurationChange}
+            onAddMover={handleAddMover}
+            onSelectStock={onSelectStock}
+            addedSymbols={moverSymbols}
+        />
     </div>
-</div>
      
   );
 };

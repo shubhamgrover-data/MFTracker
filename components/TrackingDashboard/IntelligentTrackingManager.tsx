@@ -23,7 +23,7 @@ interface IntelligentTrackingManagerProps {
   setViewState: React.Dispatch<React.SetStateAction<IntelligentState>>;
 }
 
-const FILTER_TYPES = ["All", "Valuation", "Technicals", "Holdings", "Performance", "Deals"];
+const FILTER_TYPES: string[] = ["All", "Valuation", "Technicals", "Holdings", "Performance", "Deals"];
 const BATCH_SIZE = 10;
 
 const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({ 
@@ -37,7 +37,7 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
   const [loadingSymbols, setLoadingSymbols] = useState(false);
   const [trackTick, setTrackTick] = useState(0);
   const [availableIndices, setAvailableIndices] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   
   // Selection and Force Refresh State
   const [selectedSymbols, setSelectedSymbols] = useState<Set<string>>(new Set());
@@ -265,14 +265,14 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
                {/* Index Selector */}
                <div className="relative w-full md:w-48">
                    <select 
-                       value={viewState.selectedIndex as string}
-                       onChange={(e) => {
+                       value={viewState.selectedIndex}
+                       onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
                            updateState({ selectedIndex: e.target.value, symbols: [], page: 1 }); 
                        }}
                        className="w-full appearance-none bg-gray-50 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg pl-4 pr-10 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                        disabled={loadingSymbols || status === 'initializing'}
                    >
-                       {availableIndices.map(idx => <option key={idx} value={idx}>{idx}</option>)}
+                       {availableIndices.map((idx: string) => <option key={idx} value={idx}>{idx}</option>)}
                    </select>
                    <ChevronDown size={16} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
                </div>
@@ -284,7 +284,7 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
                    </div>
                    <input 
                        type="text"
-                       value={searchQuery as string}
+                       value={searchQuery}
                        onChange={(e) => setSearchQuery(e.target.value)}
                        placeholder="Search insights..."
                        className="w-full bg-gray-50 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -300,10 +300,10 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
                    </div>
                    <select 
                        value={viewState.filter}
-                       onChange={(e) => updateState({ filter: e.target.value, page: 1 })}
+                       onChange={(e: React.ChangeEvent<HTMLSelectElement>) => updateState({ filter: e.target.value, page: 1 })}
                        className="w-full appearance-none bg-gray-50 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg pl-9 pr-10 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                    >
-                       {FILTER_TYPES.map(type => (
+                       {FILTER_TYPES.map((type: string) => (
                            <option key={type} value={type}>{type} Insights</option>
                        ))}
                    </select>

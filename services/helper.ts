@@ -36,3 +36,22 @@ export function extractMultipleAttributes(
 
   return result;
 }
+
+export type IndexRecord = {
+  index: string;
+  [key: string]: any;
+};
+
+// wrote this function to enable tracking functionality in indices tab of the SEctoral pulse 
+export function findIndexName(
+  data: IndexRecord[],
+  search: string
+): string | null {
+  const term = search.trim().toLowerCase();
+
+  const match = data.find(item =>
+    item.index.trim().toLowerCase() === term
+  );
+
+  return match ? match.index : null;
+}

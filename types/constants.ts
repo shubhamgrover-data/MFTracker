@@ -194,13 +194,71 @@ export const MARKET_OVERVIEW_INDICES = [
   "NIFTY 50", 
   "NIFTY NEXT 50", 
   "NIFTY MIDCAP 150", 
-  "NIFTY SMALLCAP 250",
+  "NIFTY SMLCAP 250",
   "NIFTY 500", 
-  "NIFTY TOTAL MARKET"
+  "NIFTY TOTAL MKT"
   //"INDIA VIX" no need removed intentionally
 ];
 
 export const HEADER_INDICES = [
   "NIFTY 50",
   "NIFTY BANK"
+];
+
+// Configuration for Index Insights API
+export const INDEX_INSIGHTS_CONFIG = [
+    {
+        id: 'gainers',
+        title: 'Top Gainers',
+        url: 'https://www.nseindia.com/api/NextApi/apiClient/indexTrackerApi?functionName=getTopFiveStock&&flag=G&&index={INDEX}',
+        jsonKey: 'topGainers',
+        isContribution: false,
+        template: (item: any) => `${item.symbol} surged ${item.pchange ? item.pchange.toFixed(2) : 0}% with volume of ${(item.totalTradedVolume/1000000).toFixed(2)}M.`,
+        type: 'positive'
+    },
+    {
+        id: 'losers',
+        title: 'Top Losers',
+        url: 'https://www.nseindia.com/api/NextApi/apiClient/indexTrackerApi?functionName=getTopFiveStock&&flag=L&&index={INDEX}',
+        jsonKey: 'topLoosers', // NSE typo in API response key
+        isContribution: false,
+        template: (item: any) => `${item.symbol} fell ${item.pchange ? Math.abs(item.pchange).toFixed(2) : 0}% trading at ${item.lastPrice}.`,
+        type: 'negative'
+    },
+    {
+        id: 'active_value',
+        title: 'Most Active (Value)',
+        url: 'https://www.nseindia.com/api/NextApi/apiClient/indexTrackerApi?functionName=getTopFiveStock&&flag=MAVA&&index={INDEX}',
+        jsonKey: 'mostActiveValue',
+        isContribution: false,
+        template: (item: any) => `High turnover of ₹${(item.totalTradedValue/10000000).toFixed(0)}Cr in ${item.symbol}.`,
+        type: 'neutral'
+    },
+    {
+        id: 'active_volume',
+        title: 'Most Active (Volume)',
+        url: 'https://www.nseindia.com/api/NextApi/apiClient/indexTrackerApi?functionName=getTopFiveStock&&flag=MAVO&&index={INDEX}',
+        jsonKey: 'mostActiveVolume',
+        isContribution: false,
+        template: (item: any) => `Heavy trading in ${item.symbol} with ${(item.totalTradedVolume/1000000).toFixed(2)}M shares traded.`,
+        type: 'neutral'
+    },
+    {
+        id: 'movers',
+        title: 'Index Movers',
+        url: 'https://www.nseindia.com/api/NextApi/apiClient/indexTrackerApi?functionName=getContributionData&&index={INDEX}&&noofrecords=10&&flag=1',
+        jsonKey: 'data',
+        isContribution: true,
+        template: (item: any) => `${item.icSymbol} contributed +${item.changePoints ? item.changePoints.toFixed(2) : 0} points to the index.`,
+        type: 'positive'
+    },
+    {
+        id: 'draggers',
+        title: 'Index Draggers',
+        url: 'https://www.nseindia.com/api/NextApi/apiClient/indexTrackerApi?functionName=getContributionData&&index={INDEX}&&flag=0&&noofrecords=10',
+        jsonKey: 'data',
+        isContribution: true,
+        template: (item: any) => `${item.icSymbol} dragged the index down by ${item.changePoints ? Math.abs(item.changePoints).toFixed(2) : 0} points.`,
+        type: 'negative'
+    }
 ];

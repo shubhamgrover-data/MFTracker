@@ -117,11 +117,20 @@ const INDICES_KEY = 'fundflow_tracked_indices';
 const DEFAULT_ITEMS: TrackedItem[] = [
   { id: 'RELIANCE', name: 'Reliance Industries Ltd', symbol: 'RELIANCE', type: 'STOCK' },
   { id: 'HDFCBANK', name: 'HDFC Bank Ltd', symbol: 'HDFCBANK', type: 'STOCK' },
-  { id: 'TATAMOTORS', name: 'Tata Motors Ltd', symbol: 'TATAMOTORS', type: 'STOCK' },
+  { id: 'ZOMATO', name: 'Zomato Ltd', symbol: 'ZOMATO', type: 'STOCK' },
+  { id: 'PAYTM', name: 'One97 Communications Ltd', symbol: 'PAYTM', type: 'STOCK' },
+  { id: 'RVNL', name: 'Rail Vikas Nigam Ltd', symbol: 'RVNL', type: 'STOCK' },
+  { id: 'IRFC', name: 'Indian Railway Finance Corp', symbol: 'IRFC', type: 'STOCK' },
+  { id: 'JIOFIN', name: 'Jio Financial Services', symbol: 'JIOFIN', type: 'STOCK' },
+  { id: 'VBL', name: 'Varun Beverages Ltd', symbol: 'VBL', type: 'STOCK' },
+  { id: 'HAL', name: 'Hindustan Aeronautics Ltd', symbol: 'HAL', type: 'STOCK' },
+  { id: 'BEL', name: 'Bharat Electronics Ltd', symbol: 'BEL', type: 'STOCK' },
+  { id: 'TRENT', name: 'Trent Ltd', symbol: 'TRENT', type: 'STOCK' },
+  { id: 'MAZDOCK', name: 'Mazagon Dock Shipbuilders', symbol: 'MAZDOCK', type: 'STOCK' },
 ];
 
 const DEFAULT_IGNORED_ITEMS: string[] = [
-  "ADANIENSOL", "ADANIGREEN", "ADANITRANS", "PAYTM", "ZOMATO", "NYKAA", "POLICYBZR"
+  "ADANIENSOL", "ADANIGREEN", "ADANITRANS", "POLICYBZR"
 ];
 
 const DEFAULT_INDICES = ["NIFTY NEXT 50","NIFTY 50", "NIFTY BANK", "NIFTY IT"];
@@ -144,6 +153,16 @@ export const getTrackedItems = (): TrackedItem[] => {
 
 export const addTrackedItem = (item: TrackedItem) => {
   const items = getTrackedItems();
+  
+  // Check limit for Stocks (Max 50)
+  if (item.type === 'STOCK') {
+      const stockCount = items.filter(i => i.type === 'STOCK').length;
+      if (stockCount >= 50) {
+          alert("Watchlist limit reached. You can track a maximum of 50 stocks.");
+          return;
+      }
+  }
+
   // Prevent duplicates
   if (!items.find(i => i.id === item.id && i.type === item.type)) {
     const newItems = [...items, item];

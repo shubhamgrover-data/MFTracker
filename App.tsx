@@ -7,7 +7,7 @@ import StockSearch from './components/StockSearch';
 import TrackingDashboard from './components/TrackingDashboard/TrackingDashboard';
 import ConfigurationView from './components/Configuration/ConfigurationView';
 import { FundSnapshot, FundSearchResult } from './types';
-import { InsightResultItem, IntelligentState } from './types/trackingTypes';
+import { InsightResultItem, IntelligentState, MarketIndexData, SectoralData } from './types/trackingTypes';
 import { useInsightExtraction } from './hooks/useInsightExtraction';
 import { getTrackedIndices } from './services/trackingStorage';
 
@@ -17,11 +17,13 @@ function App() {
   const [selectedStock, setSelectedStock] = useState<{symbol: string, name: string} | null>(null);
   const [selectedFund, setSelectedFund] = useState<FundSearchResult | null>(null);
 
+  // --- Lifted State for Persistent Market Data ---
+  const [marketIndices, setMarketIndices] = useState<MarketIndexData[]>([]);
+  const [moversData, setMoversData] = useState<any[]>([]);
+  const [sectoralData, setSectoralData] = useState<SectoralData | null>(null);
+
   // --- Lifted State for Bulk Insights (Deep Dive) ---
-  const [bulkResults, setBulkResults] = useState<Record<string, InsightResultItem[]>>({});
-  const [bulkStatus, setBulkStatus] = useState<'idle' | 'initializing' | 'polling' | 'completed' | 'error'>('idle');
-  const [bulkProgress, setBulkProgress] = useState({ completed: 0, total: 0 });
-  const [requestId, setRequestId] = useState<string | null>(null);
+  const deepDiveExtraction = useInsightExtraction();
 
   // --- Lifted State for Intelligent Tracking ---
   const intelligentExtraction = useInsightExtraction();
@@ -76,15 +78,15 @@ function App() {
           <TrackingDashboard 
             onSelectStock={handleSelectStock}
             onSelectFund={handleSelectFundFromDashboard}
+            // Pass lifted Market Data state
+            marketIndices={marketIndices}
+            setMarketIndices={setMarketIndices}
+            moversData={moversData}
+            setMoversData={setMoversData}
+            sectoralData={sectoralData}
+            setSectoralData={setSectoralData}
             // Pass lifted state for Deep Dive
-            bulkResults={bulkResults}
-            setBulkResults={setBulkResults}
-            bulkStatus={bulkStatus}
-            setBulkStatus={setBulkStatus}
-            bulkProgress={bulkProgress}
-            setBulkProgress={setBulkProgress}
-            requestId={requestId}
-            setRequestId={setRequestId}
+            deepDiveExtraction={deepDiveExtraction}
             // Pass lifted state for Intelligent Tracking
             intelligentExtraction={intelligentExtraction}
             intelligentState={intelligentState}
@@ -116,14 +118,13 @@ function App() {
           <TrackingDashboard 
             onSelectStock={handleSelectStock}
             onSelectFund={handleSelectFundFromDashboard}
-            bulkResults={bulkResults}
-            setBulkResults={setBulkResults}
-            bulkStatus={bulkStatus}
-            setBulkStatus={setBulkStatus}
-            bulkProgress={bulkProgress}
-            setBulkProgress={setBulkProgress}
-            requestId={requestId}
-            setRequestId={setRequestId}
+            marketIndices={marketIndices}
+            setMarketIndices={setMarketIndices}
+            moversData={moversData}
+            setMoversData={setMoversData}
+            sectoralData={sectoralData}
+            setSectoralData={setSectoralData}
+            deepDiveExtraction={deepDiveExtraction}
             intelligentExtraction={intelligentExtraction}
             intelligentState={intelligentState}
             setIntelligentState={setIntelligentState}

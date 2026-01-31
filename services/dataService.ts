@@ -1,9 +1,10 @@
 
 import { FundSnapshot, StockHolding, StockMFAnalysis, MutualFundHolding, MFHoldingHistory, StockPriceData, FundPortfolioHolding, FundSearchResult, FundPortfolioData, FundMeta, SectorDistribution, HoldingHistoryItem } from '../types';
-import { StockDataRequestItem, BulkExtractResponse, PollStatusResponse, MarketIndexData, FiiDiiData, FiiDiiMetric } from '../types/trackingTypes';
+import { StockDataRequestItem, BulkExtractResponse, PollStatusResponse, MarketIndexData, FiiDiiData, FiiDiiMetric, IndexInsightCategory, IndexInsightItem, SectoralData, SectorPulseItem, SectorInsightItem } from '../types/trackingTypes';
 import { generateInsightConfig } from './trackingStorage';
 import { extractStockDataFromHtml } from './geminiService';
 import { extractMultipleAttributes } from './helper';
+import { INDEX_INSIGHTS_CONFIG } from '../types/constants';
 import * as XLSX from 'xlsx';
 
 const PROXY_BASE_URL = "https://stockmarketdata.linkpc.net/api/extract-data";
@@ -58,7 +59,7 @@ export const fetchFromProxy = async (targetUrl: string, options: ProxyOptions = 
   return data;
 };
 
-// --- Bulk Insight Logic ---
+// ... (Existing Bulk Insight Logic: getStockMetadata, initiateBulkInsightExtraction, pollBulkInsightStatus) ...
 
 // Helper to get Stock PK and Slug using the optimized multi-attribute fetch
 const getStockMetadata = async (symbol: string): Promise<{ pk: string, slug: string } | null> => {
@@ -179,7 +180,7 @@ export const fetchMultipleAttributes = async (targetUrl: string, attributes: str
 };
 
 
-// Excel Parsing Logic
+// ... (Existing Excel Parsing Logic) ...
 export const parseExcelFile = async (file: File): Promise<FundSnapshot | null> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -221,16 +222,7 @@ export const parseExcelFile = async (file: File): Promise<FundSnapshot | null> =
   });
 };
 
-// --- Master Stock List Search Logic ---
-
-interface StockApiItem {
-  compname: string;
-  s_name: string;
-  fincode: number;
-  stock_search: string;
-}
-
-// Module-level cache
+// ... (Existing Stock/Fund Search Logic) ...
 let stockListCache: Array<{ symbol: string; name: string }> | null = null;
 let stockListPromise: Promise<void> | null = null;
 
@@ -277,7 +269,12 @@ export const searchStocksFromMasterList = async (query: string): Promise<Array<{
     ).slice(0, 20);
 };
 
-// --- Master Mutual Fund List Search Logic ---
+interface StockApiItem {
+  compname: string;
+  s_name: string;
+  fincode: number;
+  stock_search: string;
+}
 
 let fundListCache: FundSearchResult[] | null = null;
 let fundListPromise: Promise<void> | null = null;
@@ -291,27 +288,16 @@ const ensureFundListLoaded = async () => {
       try {
         let data = await fetchFromProxy(url);
         
-        // Ensure data is parsed if it came back as a string
         if (typeof data === 'string') {
-            try {
-                data = JSON.parse(data);
-            } catch (e) {
-                console.error("Error parsing fund list JSON string", e);
-                // Continue, maybe it's not JSON
-            }
+            try { data = JSON.parse(data); } catch (e) {}
         }
 
         let list: any[] = [];
-        
-        // Handle new structure: { body: { tableData: [ [ {name, url, pk}, ... ], ... ] } }
         if (data && data.body && Array.isArray(data.body.tableData)) {
-            // Map the first element of each row which contains the fund info object
             list = data.body.tableData.map((row: any[]) => row[0]);
         } else if (Array.isArray(data)) {
-            // Fallback for flat structure
             list = data;
         } else if (data && typeof data === 'object' && Array.isArray(data.data)) {
-            // Fallback for data.data structure
             list = data.data;
         }
 
@@ -319,7 +305,7 @@ const ensureFundListLoaded = async () => {
           name: item.name || item.fname || item.s_name || "Unknown Fund",
           url: item.url || item.link || item.scheme_url || "",
           pk: item.pk || item.id || item.scheme_code || 0,
-          type: "Equity Fund" // Default type as API response groups mixed categories
+          type: "Equity Fund" 
         })).filter(f => f.name !== "Unknown Fund" && f.url);
 
       } catch (e) {
@@ -337,7 +323,6 @@ export const searchFundsFromMasterList = async (query: string): Promise<FundSear
   if (!query) return [];
 
   const lowerQ = query.toLowerCase();
-  // Filter by name and return top 20
   return fundListCache.filter(f => f.name.toLowerCase().includes(lowerQ)).slice(0, 20);
 };
 
@@ -347,7 +332,7 @@ export const reloadFundMasterList = async () => {
     await ensureFundListLoaded();
 };
 
-// --- Master Index List Fetcher ---
+// ... (Existing Master Index List Fetcher) ...
 export const fetchMasterIndicesList = async (): Promise<Array<{ name: string; category: string }>> => {
     try {
         const url = "https://www.nseindia.com/api/equity-master";
@@ -355,23 +340,10 @@ export const fetchMasterIndicesList = async (): Promise<Array<{ name: string; ca
         
         let jsonData = data;
         if (typeof data === 'string') {
-            try {
-                jsonData = JSON.parse(data);
-            } catch (e) {
-                console.error("Failed to parse Indices JSON", e);
-                return [];
-            }
+            try { jsonData = JSON.parse(data); } catch (e) { return []; }
         }
 
-        // Flatten all categories except "Others"
-        const allowedCategories = [
-            "Indices Eligible In Derivatives", 
-            "Broad Market Indices", 
-            "Sectoral Market Indices", 
-            "Thematic Market Indices", 
-            "Strategy Market Indices"
-        ];
-        
+        const allowedCategories = ["Indices Eligible In Derivatives", "Broad Market Indices", "Sectoral Market Indices", "Thematic Market Indices", "Strategy Market Indices"];
         let allIndices: Array<{ name: string; category: string }> = [];
         
         allowedCategories.forEach(cat => {
@@ -390,7 +362,6 @@ export const fetchMasterIndicesList = async (): Promise<Array<{ name: string; ca
     }
 };
 
-// --- Market Indices Fetcher ---
 export const fetchMarketIndices = async (): Promise<MarketIndexData[]> => {
     try {
         const url = "https://www.nseindia.com/api/allIndices";
@@ -398,18 +369,12 @@ export const fetchMarketIndices = async (): Promise<MarketIndexData[]> => {
         
         let jsonData = data;
         if (typeof data === 'string') {
-            try {
-                jsonData = JSON.parse(data);
-            } catch (e) {
-                console.error("Failed to parse Market Indices JSON", e);
-                return [];
-            }
+            try { jsonData = JSON.parse(data); } catch (e) { return []; }
         }
 
         if (jsonData && Array.isArray(jsonData.data)) {
             return jsonData.data as MarketIndexData[];
         }
-        
         return [];
     } catch (e) {
         console.error("Error fetching Market Indices", e);
@@ -417,23 +382,15 @@ export const fetchMarketIndices = async (): Promise<MarketIndexData[]> => {
     }
 };
 
-
-// --- Fund Portfolio Fetcher ---
-
+// ... (Existing Fund Portfolio Fetcher & other helpers) ...
 export const fetchFundPortfolio = async (fundUrl: string): Promise<FundPortfolioData | null> => {
   try {
-    // We need to fetch 3 things: Holdings, Fund Meta (Description), Sector Distribution
-    // 1. Holdings: attribute 'data-holdings'
-    // 2. Meta: attribute 'data-mfobj'
-    // 3. Sectors: attribute 'data-distributiongraphdataequity'
-
     const [holdingsRes, metaRes, sectorRes] = await Promise.all([
         fetchFromProxy(fundUrl, { attribute: 'data-holdings' }),
         fetchFromProxy(fundUrl, { attribute: 'data-mfobj' }),
         fetchFromProxy(fundUrl, { attribute: 'data-distributiongraphdataequity' })
     ]);
 
-    // --- Parse Holdings ---
     let holdingsArray: any[] = [];
     if (typeof holdingsRes === 'string') {
        try { holdingsArray = JSON.parse(holdingsRes); } catch (e) { console.error("Error parsing holdings", e); }
@@ -455,7 +412,6 @@ export const fetchFundPortfolio = async (fundUrl: string): Promise<FundPortfolio
             changeQuantity: Number(item[6]) || 0,
             changePercentage: Number(item[7]) || 0,
             historyUrl: item[8] || "",
-            // Scores
             d: stockInfo.D,
             dColor: stockInfo.dcolor,
             v: stockInfo.V,
@@ -467,7 +423,6 @@ export const fetchFundPortfolio = async (fundUrl: string): Promise<FundPortfolio
       })
       : [];
 
-    // --- Parse Meta ---
     let meta: FundMeta | null = null;
     let metaObj: any = null;
     if (typeof metaRes === 'string') {
@@ -476,7 +431,6 @@ export const fetchFundPortfolio = async (fundUrl: string): Promise<FundPortfolio
         metaObj = metaRes;
     }
     
-    // Check if proxy returned { rawValue: string } or raw JSON
     if (metaObj && metaObj.rawValue) {
         try { metaObj = JSON.parse(metaObj.rawValue); } catch(e) {}
     }
@@ -489,7 +443,6 @@ export const fetchFundPortfolio = async (fundUrl: string): Promise<FundPortfolio
         };
     }
 
-    // --- Parse Sector Distribution ---
     let sectorDistribution: SectorDistribution[] = [];
     let sectorRaw: any = sectorRes;
      if (typeof sectorRes === 'string') {
@@ -503,11 +456,7 @@ export const fetchFundPortfolio = async (fundUrl: string): Promise<FundPortfolio
         }));
     }
 
-    return {
-        holdings,
-        meta,
-        sectorDistribution
-    };
+    return { holdings, meta, sectorDistribution };
 
   } catch (error) {
     console.error("Error fetching fund portfolio data:", error);
@@ -520,14 +469,12 @@ export const fetchFundHoldingHistory = async (historyUrl: string): Promise<Holdi
         const url = `${historyUrl}`;
         const data = await fetchFromProxy(url, { tagName: 'table', attribute: 'class', attributeValue: 'table fs09rem tl-dataTable' });
         
-        // Data should be an array of objects if proxy works as expected for tables
         if (Array.isArray(data)) {
             return data as HoldingHistoryItem[];
         }
         if (data && data.data && Array.isArray(data.data)) {
              return data.data as HoldingHistoryItem[];
         }
-        
         return [];
     } catch (e) {
         console.error("Error fetching history", e);
@@ -535,18 +482,14 @@ export const fetchFundHoldingHistory = async (historyUrl: string): Promise<Holdi
     }
 };
 
-// --- Live Stock Price Fetcher ---
-
 export const fetchLiveStockPrice = async (symbol: string): Promise<StockPriceData | null> => {
   try {
     const targetUrl = `https://trendlyne.com/equity/${symbol}/stock-page/`;
-    
     const htmlData = await fetchFromProxy(targetUrl, {
       attribute: 'class',
       attributeValue: ' stock_price_and_tools_container '
     });
     
-    // Handle Proxy Response format (might be string, array, or object with rawValue)
     let htmlContent = "";
     if (typeof htmlData === 'string') {
         htmlContent = htmlData;
@@ -557,8 +500,6 @@ export const fetchLiveStockPrice = async (symbol: string): Promise<StockPriceDat
     }
 
     if (!htmlContent) throw new Error("No HTML content received for Price");
-
-    // Pass to Gemini for Parsing
     return await extractStockDataFromHtml(htmlContent);
 
   } catch (error) {
@@ -567,54 +508,67 @@ export const fetchLiveStockPrice = async (symbol: string): Promise<StockPriceDat
   }
 };
 
-// --- Real-time Mutual Fund Holdings Fetcher ---
+export const fetchStockQuote = async (symbol: string): Promise<any | null> => {
+    try {
+        const encodedSymbol = encodeURIComponent(symbol);
+        const url = `https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi?functionName=getSymbolData&marketType=N&series=EQ&symbol=${encodedSymbol}`;
+        const data = await fetchFromProxy(url);
+        
+        let jsonData = data;
+        if (typeof data === 'string') {
+            try { jsonData = JSON.parse(data); } catch (e) { return null; }
+        }
+        
+        if (jsonData && typeof jsonData === 'object' && !jsonData.equityResponse) {
+             if (jsonData.rawValue) {
+                 try { jsonData = JSON.parse(jsonData.rawValue); } catch(e) {}
+             }
+        }
+
+        if (jsonData && jsonData.equityResponse && Array.isArray(jsonData.equityResponse) && jsonData.equityResponse.length > 0) {
+            return jsonData.equityResponse[0];
+        }
+        return null;
+    } catch (e) {
+        console.error(`Error fetching NSE Quote for ${symbol}`, e);
+        return null;
+    }
+};
 
 export const fetchMutualFundHoldingsForStock = async (symbol: string): Promise<StockMFAnalysis | null> => {
   try {
     const pkUrl = `https://trendlyne.com/equity/${symbol}/stock-page/`;
     
-    // 1. Get Stock PK
     const pkData = await fetchFromProxy(pkUrl, { attribute: 'data-stock-pk' });
-
     let stockPk = pkData;
     if (typeof pkData === 'object' && pkData !== null) {
        stockPk = pkData.rawValue || (Array.isArray(pkData) ? pkData[0] : null);
     }
     if (!stockPk) throw new Error("Could not fetch Stock PK");
 
-    // 2. Get Stock Slug
     const slugData = await fetchFromProxy(pkUrl, { attribute: 'data-stockslugname' });
-
     let stockSlug = slugData;
     if (typeof slugData === 'object' && slugData !== null) {
         stockSlug = slugData.rawValue || (Array.isArray(slugData) ? slugData[0] : null);
     }
     if (!stockSlug) throw new Error("Could not fetch Stock Slug");
 
-    // 3. Get Holdings Table
     const holdingsUrl = `https://trendlyne.com/equity/monthly-mutual-fund-share-holding/${stockPk}/${symbol}/latest/${stockSlug}/prune-etf/`;
-    
     const rawHoldingsData = await fetchFromProxy(holdingsUrl, {
       attribute: 'class',
       attributeValue: 'table tl-dataTable JS_autoDataTables JS_export_btn full-width',
       tagName: 'table'
     });
     
-    // Robust check for response structure
     let dataToParse = rawHoldingsData;
     if (!Array.isArray(rawHoldingsData)) {
          if (rawHoldingsData && Array.isArray(rawHoldingsData.data)) {
              dataToParse = rawHoldingsData.data;
          } else {
-             // It might be that the proxy returns HTML string for table instead of JSON array. 
-             // We can check if dataToParse is string. If so, we can't parse it easily without Gemini or Cheerio.
-             // But for now, let's assume if it fails array check, it's null.
-             console.warn("Expected array for holdings data but got:", rawHoldingsData);
              return null;
          }
     }
 
-    // 4. Parse Data
     const mfHoldings: MutualFundHolding[] = dataToParse.map((item: any) => {
       const mfTotal = item["MF_Total:"];
       const fundName = mfTotal?.text || "Unknown Fund";
@@ -623,14 +577,11 @@ export const fetchMutualFundHoldingsForStock = async (symbol: string): Promise<S
       const mfPk = matches ? Number(matches[matches.length - 1]) : null;
       const historyUrl = `https://trendlyne.com/mutual-fund/holding-history/${mfPk}/${stockPk}`;
       
-      // Extract dynamic month keys
       const history: MFHoldingHistory[] = [];
       const keys = Object.keys(item);
-      
       const monthMap = new Map<string, Partial<MFHoldingHistory>>();
 
       keys.forEach(key => {
-        // Regex to match "Dec-2025" pattern at start of key
         const match = key.match(/^([A-Za-z]{3}-\d{4})_(.+)$/);
         if (match) {
           const month = match[1];
@@ -667,7 +618,6 @@ export const fetchMutualFundHoldingsForStock = async (symbol: string): Promise<S
       };
     });
 
-    // 5. Aggregate History for Graph
     const aggMap = new Map<string, number>();
     mfHoldings.forEach(fund => {
       fund.history.forEach(h => {
@@ -694,23 +644,14 @@ export const fetchMutualFundHoldingsForStock = async (symbol: string): Promise<S
   }
 };
 
-/**
- * Fetches stock symbols from NSE API for a given index.
- * Uses the proxy as NSE blocks direct client calls.
- */
 export const fetchIndexConstituents = async (indexName: string): Promise<string[]> => {
   try {
     const encodedIndex = encodeURIComponent(indexName);
     const nseUrl = `https://www.nseindia.com/api/equity-stockIndices?index=${encodedIndex}`;
     
- 
-    
-
-    // Try fetching via proxy
     const data = await fetchFromProxy(nseUrl);
     
-       // Fallback static list for reliability in demo environment if proxy fails
-if (indexName === "NIFTY 50" && !data) {
+    if (indexName === "NIFTY 50" && !data) {
         return [
             "RELIANCE", "TCS", "HDFCBANK", "INFY", "BHARTIARTL", "ICICIBANK", "ITC", 
             "SBIN", "LICI", "HINDUNILVR", "TATAMOTORS", "LT", "HCLTECH", "AXISBANK", 
@@ -742,31 +683,19 @@ export const fetchStockSecInfo = async (symbol: string) => {
         const data = await fetchFromProxy(url);
         
         let jsonData = data;
-        // Parse if it's a string
         if (typeof data === 'string') {
-            try {
-                jsonData = JSON.parse(data);
-            } catch (e) {
-                console.error(`Failed to parse NSE Sec Info JSON for ${symbol}`, e);
-                return null;
-            }
+            try { jsonData = JSON.parse(data); } catch (e) { return null; }
         }
         
-        // Handle proxy returning object wrapper with 'rawValue' or similar, if applicable
         if (jsonData && typeof jsonData === 'object' && !jsonData.equityResponse) {
-             // Attempt to find nested JSON if proxy wrapped it differently
              if (jsonData.rawValue) {
-                 try {
-                     jsonData = JSON.parse(jsonData.rawValue);
-                 } catch(e) {}
+                 try { jsonData = JSON.parse(jsonData.rawValue); } catch(e) {}
              }
         }
 
         if (jsonData && jsonData.equityResponse && Array.isArray(jsonData.equityResponse) && jsonData.equityResponse.length > 0) {
             return jsonData.equityResponse[0].secInfo;
         }
-        
-        console.warn(`No valid equityResponse found for ${symbol}`, jsonData);
         return null;
     } catch (e) {
         console.error(`Error fetching NSE Sec Info for ${symbol}`, e);
@@ -774,109 +703,207 @@ export const fetchStockSecInfo = async (symbol: string) => {
     }
 }
 
-// --- FII/DII Data Fetcher ---
-
+// ... (FII/DII Fetcher) ...
 const FII_DII_STORAGE_KEY = 'fundflow_fii_dii_data';
-
 export const fetchFiiDiiActivity = async (forceRefresh: boolean = false): Promise<FiiDiiData | null> => {
     try {
-        // 1. Check Storage cache
         if (!forceRefresh) {
             const stored = localStorage.getItem(FII_DII_STORAGE_KEY);
             if (stored) {
-                const parsed: FiiDiiData = JSON.parse(stored);
-                // Check if data is from today (or reasonable timeframe, e.g., 20 hours to be safe for daily updates)
-                // However, user requested caching unless explicit refresh.
-                // We will just return cached data if available.
-                return parsed;
+                return JSON.parse(stored);
             }
         }
 
-        // 2. Fetch HTML via Proxy
         const targetUrl = "https://trendlyne.com/macro-data/fii-dii/latest/cash-pastmonth/";
         const htmlContent = await fetchFromProxy(targetUrl);
         
-        if (!htmlContent || typeof htmlContent !== 'string') {
-            throw new Error("Invalid HTML content for FII/DII");
-        }
+        if (!htmlContent || typeof htmlContent !== 'string') throw new Error("Invalid HTML content for FII/DII");
 
-        // 3. Extract JSON using helper
-        // The attribute holding the JSON string is 'data-jsondata'
         const extracted = extractMultipleAttributes(htmlContent, ['data-jsondata']);
         const jsonDataEntries = extracted['data-jsondata'];
-        
-        // Find the specific element ID asked
         const targetElement = jsonDataEntries.find(e => e.elementId === 'cash-table-main-pastmonth');
         
-        if (!targetElement || !targetElement.attributeValue) {
-             throw new Error("Target element for FII/DII not found");
-        }
+        if (!targetElement || !targetElement.attributeValue) throw new Error("Target element for FII/DII not found");
 
-        // 4. Parse Inner JSON
         const innerJson = JSON.parse(targetElement.attributeValue);
         const rows = innerJson.data as any[][];
-        // Headers mapping based on provided example:
-        // index 0: date label (e.g. "Last 30 Days", date string)
-        // index 3: FII Net
-        // index 4: DII Net
-        
-        // 5. Transform Data
         const history: FiiDiiMetric[] = [];
-        
-        // We look for specific rows or map all. 
-        // Typically the table has: Specific Dates, "Last 1 Week", "Last 2 Weeks", "Last 30 Days"
-        
-        // Find "Latest" (usually the first row with a date-like string or "Today")
-        // Actually, the example shows "Last 30 Days" as first row in the sample, 
-        // but typically Trendlyne shows daily data rows first then summary rows at bottom?
-        // Let's assume the rows contain mixed data. We want specific aggregates.
-        
         let latestMetric: FiiDiiMetric | null = null;
 
         rows.forEach(row => {
             const label = String(row[0]);
             const fiiNet = parseFloat(String(row[3])) || 0;
             const diiNet = parseFloat(String(row[4])) || 0;
-
-            // Check if it's a date (e.g., "18 Feb 2025")
-            // Simple check: contains year or looks like date
             const isDate = label.match(/\d{4}/) || label.match(/[A-Z][a-z]{2}\s\d{1,2}/);
             
-            if (isDate) {
-                 // It's a daily record. The first one we find (top of list) is likely latest if sorted desc
-                 if (!latestMetric) {
-                     latestMetric = { period: label, fiiNet, diiNet };
-                 }
+            if (isDate && !latestMetric) {
+                 latestMetric = { period: label, fiiNet, diiNet };
             }
-            
-            // Check for aggregates
             if (label.includes("Last 1 Week") || label.includes("Last 2 Weeks") || label.includes("Last 30 Days")) {
                 history.push({ period: label, fiiNet, diiNet });
             }
         });
         
-        // If latestMetric is null (maybe table structure diff), take the first row if it's not an aggregate
         if (!latestMetric && rows.length > 0 && !String(rows[0][0]).includes("Last")) {
              const r = rows[0];
              latestMetric = { period: String(r[0]), fiiNet: parseFloat(String(r[3])) || 0, diiNet: parseFloat(String(r[4])) || 0 };
         }
 
-        const result: FiiDiiData = {
-            latest: latestMetric,
-            history: history,
-            lastUpdated: Date.now()
-        };
-
-        // 6. Cache
+        const result: FiiDiiData = { latest: latestMetric, history: history, lastUpdated: Date.now() };
         localStorage.setItem(FII_DII_STORAGE_KEY, JSON.stringify(result));
-
         return result;
 
     } catch (e) {
         console.error("Error fetching FII/DII Activity", e);
-        // Return cached if available on error
         const stored = localStorage.getItem(FII_DII_STORAGE_KEY);
         if (stored) return JSON.parse(stored);
         return null;
     }
 };
+
+// ... (Index Insights Fetcher) ...
+export const fetchIndexInsights = async (indexName: string): Promise<IndexInsightCategory[]> => {
+    const encodedIndex = encodeURIComponent(indexName);
+    const promises = INDEX_INSIGHTS_CONFIG.map(async (config) => {
+        try {
+            const url = config.url.replace('{INDEX}', encodedIndex);
+            const rawData = await fetchFromProxy(url);
+            
+            let data: any = rawData;
+            if (typeof rawData === 'string') {
+                try { data = JSON.parse(rawData); } catch(e) {}
+            }
+            
+            let items: any[] = [];
+            if (data && typeof data === 'object') {
+                const root = data.data || data;
+                if (config.isContribution && Array.isArray(root)) {
+                    items = root;
+                } else if (root && root[config.jsonKey] && Array.isArray(root[config.jsonKey])) {
+                    items = root[config.jsonKey];
+                }
+            }
+
+            if (config.id === 'movers') {
+                items = items.filter((i: any) => (i.changePoints || 0) > 0);
+            } else if (config.id === 'draggers') {
+                items = items.filter((i: any) => (i.changePoints || 0) < 0);
+            }
+
+            const insights: IndexInsightItem[] = items.map((item: any) => ({
+                symbol: item.symbol || item.icSymbol,
+                value: item.lastPrice || item.lastTradedPrice,
+                change: item.pchange || item.changePer,
+                insightText: config.template(item),
+                type: config.type as 'positive' | 'negative' | 'neutral'
+            }));
+
+            return { id: config.id, title: config.title, items: insights };
+
+        } catch (e) {
+            console.error(`Error fetching ${config.title} for ${indexName}`, e);
+            return { id: config.id, title: config.title, items: [] };
+        }
+    });
+
+    const results = await Promise.all(promises);
+    return results;
+};
+
+// --- Sectoral Pulse Fetcher ---
+
+const DURATION_MAP: Record<string, { urlPart: string, keyPrefix: string }> = {
+    '1D': { urlPart: 'day-changeP', keyPrefix: 'day' },
+    '1W': { urlPart: 'week-changeP', keyPrefix: 'week' },
+    '1M': { urlPart: 'month-changeP', keyPrefix: 'month' },
+    '3M': { urlPart: 'qtr-changeP', keyPrefix: 'qtr' },
+    '1Y': { urlPart: 'full-yr-changeP', keyPrefix: 'year' }, //changed to full-yr to fetch from right url
+    '3Y': {urlPart:'three-yr-changeP', keyPrefix:'3 years'}
+};
+
+export const fetchSectoralAnalysis = async (duration: string = '1D'): Promise<SectoralData | null> => {
+    try {
+        const config = DURATION_MAP[duration] || DURATION_MAP['1D'];
+        const url = `https://trendlyne.com/equity/sector-industry-analysis/overall/${config.urlPart}/`;
+        
+        const rawData = await fetchFromProxy(url);
+        
+        let data: any = rawData;
+        if (typeof rawData === 'string') {
+            try { data = JSON.parse(rawData); } catch(e) { return null; }
+        }
+        
+        if (!data || !data.body) return null;
+
+        const processItems = (tableData: any[], type: 'SECTOR' | 'INDUSTRY' | 'INDEX'): SectorPulseItem[] => {
+            if (!Array.isArray(tableData)) return [];
+            
+            return tableData.map(item => {
+                 const name = item.stock_column?.stockName || item.stock_column?.get_full_name || "Unknown";
+                 
+                 // Dynamic Key Extraction
+                 let change = 0;
+                 const keyPrefix = config.keyPrefix;
+                 if (type === 'INDUSTRY') change = item[`${keyPrefix}_changeP_mcapw_ind`];
+                 else if (type === 'SECTOR') change = item[`${keyPrefix}_changeP_mcapw_sec`];
+                 else change = item[`${keyPrefix}_changeP`];
+
+                 // Ensure we extract the Last Traded Price correctly
+                 const currentVal = item.currentPrice || item.yearHighLow?.ltp;
+
+                 return {
+                     name,
+                     type,
+                     changePercent: change || 0,
+                     currentVal,
+                     advances: item.advance?.value || 0,
+                     declines: item.decline?.value || 0,
+                     pe: item.pe_ttm_mcapw_ind || item.pe_ttm_mcapw_sec || item.live_pe,
+                     pb: item.pbv_ttm_mcapw_ind || item.pbv_ttm_mcapw_sec || item.PB,
+                     // We keep generic names but populate them if available in the source JSON under any timeframe
+                     oneWeekChange: item.week_changeP_mcapw_ind || item.week_changeP_mcapw_sec || item.week_changeP,
+                     oneMonthChange: item.month_changeP_mcapw_ind || item.month_changeP_mcapw_sec || item.month_changeP,
+                     oneYearChange: item.year_changeP_mcapw_ind || item.year_changeP_mcapw_sec || item.year_changeP,
+                     url: item.stock_column?.url || item.stock_column?.absolute_url || "",
+                     // Index specific
+                     yearHigh: item.yearHighLow?.high,
+                     yearLow: item.yearHighLow?.low
+                 };
+            });
+        };
+
+        const sectors = processItems(data.body.sector?.tableData, 'SECTOR');
+        const industries = processItems(data.body.industry?.tableData, 'INDUSTRY');
+        const indices = processItems(data.body.index?.tableData, 'INDEX');
+
+        return {
+            sectors,
+            industries,
+            indices,
+            lastUpdated: Date.now()
+        };
+
+    } catch (e) {
+        console.error("Error fetching Sectoral Analysis", e);
+        return null;
+    }
+};
+
+export const fetchSectorInsights = async (url: string): Promise<SectorInsightItem[]> => {
+    try {
+        const rawData = await fetchFromProxy(url, { attribute: 'data-treemapdict' });
+        let data: any = rawData;
+        if (typeof rawData === 'string') {
+            try { data = JSON.parse(rawData); } catch(e) {}
+        }
+        
+        if (data && Array.isArray(data.chart)) {
+             // Filter out container items (id is string like "pstv-container")
+             return data.chart.filter((item: any) => typeof item.id === 'number');
+        }
+        return [];
+    } catch (e) {
+        console.error("Error fetching sector insights", e);
+        return [];
+    }
+}

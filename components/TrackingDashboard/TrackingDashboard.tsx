@@ -9,7 +9,7 @@ import MarketOverview from './MarketOverview';
 import { getTrackedItems, TrackedItem, getTrackedIndices } from '../../services/trackingStorage';
 import { fetchMarketInsights } from '../../services/geminiService';
 import { fetchMarketIndices } from '../../services/dataService';
-import { Insight, InsightResultItem, IntelligentState, MarketIndexData } from '../../types/trackingTypes';
+import { Insight, InsightResultItem, IntelligentState, MarketIndexData, SectoralData } from '../../types/trackingTypes';
 import { FundSearchResult } from '../../types';
 import { HEADER_INDICES } from '../../types/constants';
 import { useInsightExtraction } from '../../hooks/useInsightExtraction';
@@ -17,15 +17,18 @@ import { useInsightExtraction } from '../../hooks/useInsightExtraction';
 interface TrackingDashboardProps {
   onSelectStock: (symbol: string, name: string) => void;
   onSelectFund: (fund: FundSearchResult) => void;
+  
+  // Market Data (Lifted)
+  marketIndices: MarketIndexData[];
+  setMarketIndices: React.Dispatch<React.SetStateAction<MarketIndexData[]>>;
+  moversData: any[];
+  setMoversData: React.Dispatch<React.SetStateAction<any[]>>;
+  sectoralData: SectoralData | null;
+  setSectoralData: React.Dispatch<React.SetStateAction<SectoralData | null>>;
+
   // Deep Dive State
-  bulkResults: Record<string, InsightResultItem[]>;
-  setBulkResults: React.Dispatch<React.SetStateAction<Record<string, InsightResultItem[]>>>;
-  bulkStatus: 'idle' | 'initializing' | 'polling' | 'completed' | 'error';
-  setBulkStatus: React.Dispatch<React.SetStateAction<'idle' | 'initializing' | 'polling' | 'completed' | 'error'>>;
-  bulkProgress: { completed: number; total: number };
-  setBulkProgress: React.Dispatch<React.SetStateAction<{ completed: number; total: number }>>;
-  requestId: string | null;
-  setRequestId: React.Dispatch<React.SetStateAction<string | null>>;
+  deepDiveExtraction: ReturnType<typeof useInsightExtraction>;
+
   // Intelligent State
   intelligentExtraction: ReturnType<typeof useInsightExtraction>;
   intelligentState: IntelligentState;
@@ -35,14 +38,13 @@ interface TrackingDashboardProps {
 const TrackingDashboard: React.FC<TrackingDashboardProps> = ({ 
   onSelectStock, 
   onSelectFund,
-  bulkResults,
-  setBulkResults,
-  bulkStatus,
-  setBulkStatus,
-  bulkProgress,
-  setBulkProgress,
-  requestId,
-  setRequestId,
+  marketIndices,
+  setMarketIndices,
+  moversData,
+  setMoversData,
+  sectoralData,
+  setSectoralData,
+  deepDiveExtraction,
   intelligentExtraction,
   intelligentState,
   setIntelligentState
@@ -53,8 +55,6 @@ const TrackingDashboard: React.FC<TrackingDashboardProps> = ({
   const [entities, setEntities] = useState<TrackedItem[]>([]);
   const [trackedIndices, setTrackedIndices] = useState<string[]>([]);
   
-  // Market Index Data (Shared across tabs for header)
-  const [marketIndices, setMarketIndices] = useState<MarketIndexData[]>([]);
   const [loadingIndices, setLoadingIndices] = useState(false);
 
   // Market News State
@@ -94,9 +94,11 @@ const TrackingDashboard: React.FC<TrackingDashboardProps> = ({
     return () => window.removeEventListener('fundflow_tracking_update', handleStorageUpdate);
   }, []); 
 
-  // Fetch Market Indices on Mount
+  // Fetch Market Indices only if empty
   useEffect(() => {
-      loadIndices();
+      if (marketIndices.length === 0) {
+          loadIndices();
+      }
   }, []);
 
   // Close popover on click outside
@@ -300,6 +302,11 @@ const TrackingDashboard: React.FC<TrackingDashboardProps> = ({
                 trackedIndices={trackedIndices}
                 onRefresh={loadIndices}
                 loading={loadingIndices}
+                onSelectStock={onSelectStock}
+                moversData={moversData}
+                setMoversData={setMoversData}
+                sectoralData={sectoralData}
+                setSectoralData={setSectoralData}
              />
          )}
 
@@ -320,14 +327,7 @@ const TrackingDashboard: React.FC<TrackingDashboardProps> = ({
          {activeStreamTab === 'DEEP_DIVE' && (
             <BulkInsightManager 
                 items={entities}
-                results={bulkResults}
-                setResults={setBulkResults}
-                status={bulkStatus}
-                setStatus={setBulkStatus}
-                progress={bulkProgress}
-                setProgress={setBulkProgress}
-                requestId={requestId}
-                setRequestId={setRequestId}
+                extractionData={deepDiveExtraction}
                 onOpenChat={(ctx) => setChatContext(ctx)}
                 onSelectStock={onSelectStock}
             />

@@ -188,7 +188,7 @@ export const useInsightExtraction = () => {
   useEffect(() => {
       if (Object.keys(batchProgress).length === 0) return;
 
-      const totals = Object.values(batchProgress).reduce<{ completed: number; total: number }>((acc, curr) => ({
+      const totals = (Object.values(batchProgress) as { completed: number; total: number }[]).reduce((acc, curr) => ({
           completed: acc.completed + curr.completed,
           total: acc.total + curr.total
       }), { completed: 0, total: 0 });
