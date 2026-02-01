@@ -69,8 +69,8 @@ const getStockMetadata = async (symbol: string): Promise<{ pk: string, slug: str
     // Fetch both attributes in a single request
     const data = await fetchFromProxy(targetUrl, { attribute: 'data-stock-pk,data-stockslugname' });
 
-    let pk = data?.['data-stock-pk'];
-    let slug = data?.['data-stockslugname'];
+    let pk = data?.['pk'];
+    let slug = data?.['slug'];
 
     // Handle case where proxy might wrap result differently (fallback)
     if (!pk || !slug) {

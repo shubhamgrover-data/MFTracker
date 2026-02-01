@@ -26,6 +26,7 @@ const SectorInsightsWidget: React.FC<SectorInsightsWidgetProps> = ({
   const [hasFetched, setHasFetched] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [trackedSet, setTrackedSet] = useState<Set<string>>(new Set());
+  const [showAllStocks, setShowAllStocks] = useState(false);
 
   // Load tracked items and listen for updates
   useEffect(() => {
@@ -105,6 +106,7 @@ const SectorInsightsWidget: React.FC<SectorInsightsWidgetProps> = ({
           return item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                  item.tooltip_stock_name.toLowerCase().includes(searchQuery.toLowerCase());
       }
+      if (showAllStocks) return true;
       return trackedSet.has(item.name);
   });
 
@@ -147,6 +149,16 @@ const SectorInsightsWidget: React.FC<SectorInsightsWidgetProps> = ({
                         </div>
                         
                         <div className="flex items-center gap-2">
+                             <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer mr-2 select-none hover:text-indigo-600 font-medium bg-white px-2 py-1.5 rounded-lg border border-gray-200 hover:border-indigo-200 transition-all">
+                                <input 
+                                    type="checkbox" 
+                                    checked={showAllStocks} 
+                                    onChange={(e) => setShowAllStocks(e.target.checked)}
+                                    className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                />
+                                Show Stocks
+                             </label>
+
                              <button 
                                 onClick={handleRefresh}
                                 disabled={isLoading}
@@ -194,7 +206,7 @@ const SectorInsightsWidget: React.FC<SectorInsightsWidgetProps> = ({
                                 ) : (
                                     <>
                                         <p className="text-sm font-medium text-gray-600">No tracked stocks in this sector.</p>
-                                        <p className="text-xs text-gray-400">Search above to find other stocks in {sectorName}.</p>
+                                        <p className="text-xs text-gray-400">Check "Show Stocks" above to see all or search for a stock.</p>
                                     </>
                                 )}
                             </div>

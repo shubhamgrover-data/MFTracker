@@ -24,6 +24,7 @@ const IndexInsightsWidget: React.FC<IndexInsightsWidgetProps> = ({
   const [hasFetched, setHasFetched] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [trackedSet, setTrackedSet] = useState<Set<string>>(new Set());
+  const [showAllStocks, setShowAllStocks] = useState(false);
 
   // Load tracked items and listen for updates
   useEffect(() => {
@@ -100,7 +101,7 @@ const IndexInsightsWidget: React.FC<IndexInsightsWidgetProps> = ({
       }
   };
 
-  // Filter data based on search query OR tracking status
+  // Filter data based on search query OR tracking status OR show all toggle
   const filteredData = data.map(category => ({
       ...category,
       items: category.items.filter(item => {
@@ -109,7 +110,10 @@ const IndexInsightsWidget: React.FC<IndexInsightsWidgetProps> = ({
               return item.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
                      item.insightText.toLowerCase().includes(searchQuery.toLowerCase());
           }
-          // If not searching, show ONLY tracked items
+          // If Show All is checked, return everything
+          if (showAllStocks) return true;
+
+          // Otherwise show ONLY tracked items
           return trackedSet.has(item.symbol);
       })
   })).filter(cat => cat.items.length > 0);
@@ -139,7 +143,7 @@ const IndexInsightsWidget: React.FC<IndexInsightsWidgetProps> = ({
             {isLoading && !isOpen ? (
                 <Loader2 size={10} className="animate-spin" />
             ) : (
-                <Lightbulb size={10} className={hasFetched ? "fill-indigo-700" : ""} />
+                <Lightbulb size={12} className={hasFetched ? "fill-indigo-700" : ""} />
             )}
             
             {hasFetched && !isLoading ? activeCategoriesCount : ''}
@@ -164,6 +168,16 @@ const IndexInsightsWidget: React.FC<IndexInsightsWidgetProps> = ({
                         </div>
                         
                         <div className="flex items-center gap-2">
+                             <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer mr-2 select-none hover:text-indigo-600 font-medium bg-white px-2 py-1.5 rounded-lg border border-gray-200 hover:border-indigo-200 transition-all">
+                                <input 
+                                    type="checkbox" 
+                                    checked={showAllStocks} 
+                                    onChange={(e) => setShowAllStocks(e.target.checked)}
+                                    className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                />
+                                Show Stocks
+                             </label>
+
                              <button 
                                 onClick={handleRefresh}
                                 disabled={isLoading}
@@ -211,7 +225,7 @@ const IndexInsightsWidget: React.FC<IndexInsightsWidgetProps> = ({
                                 ) : (
                                     <>
                                         <p className="text-sm font-medium text-gray-600">No tracked stocks found in current insights.</p>
-                                        <p className="text-xs text-gray-400">Search above to find and track specific index constituents.</p>
+                                        <p className="text-xs text-gray-400">Check "Show Stocks" above to see all or search for a stock.</p>
                                     </>
                                 )}
                             </div>

@@ -4,7 +4,7 @@ import { Calendar, Search, Loader2, RefreshCw, ExternalLink, ArrowUp, ArrowDown,
 import { SectorPulseItem, SectoralData } from '../../types/trackingTypes';
 import { getTrackedIndices, addTrackedIndex, removeTrackedIndex } from '../../services/trackingStorage';
 import { fetchMasterIndicesList } from '../../services/dataService';
-import { findIndexName } from '../../services/helper';
+import { findIndexName, IndexRecord } from '../../services/helper';
 import SectorInsightsWidget from './SectorInsightsWidget';
 
 interface SectoralPulseProps {
@@ -31,7 +31,7 @@ const SectoralPulse: React.FC<SectoralPulseProps> = ({
   const [activeTab, setActiveTab] = useState<'SECTOR' | 'INDUSTRY' | 'INDEX'>('SECTOR');
   const [searchQuery, setSearchQuery] = useState('');
   const [trackedIndices, setTrackedIndices] = useState<string[]>([]);
-  const [masterIndices, setMasterIndices] = useState<Array<{index: string}>>([]);
+  const [masterIndexList, setMasterIndexList] = useState<IndexRecord[]>([]);
 
   useEffect(() => {
       const updateTracked = () => setTrackedIndices(getTrackedIndices());
@@ -40,25 +40,35 @@ const SectoralPulse: React.FC<SectoralPulseProps> = ({
       return () => window.removeEventListener('fundflow_tracking_update', updateTracked);
   }, []);
 
-  // Fetch Master Indices List for name resolution
+  // Fetch Master List for name matching
   useEffect(() => {
-      const loadMasterIndices = async () => {
-          const list = await fetchMasterIndicesList();
-          // Map to format expected by findIndexName
-          setMasterIndices(list.map(i => ({ index: i.name })));
+      const loadMaster = async () => {
+          try {
+              const list = await fetchMasterIndicesList();
+              // Map to IndexRecord format expected by findIndexName ({ index: string, ... })
+              const mapped = list.map(i => ({ index: i.name, category: i.category }));
+              setMasterIndexList(mapped);
+          } catch (e) {
+              console.error("Failed to load master indices", e);
+          }
       };
-      loadMasterIndices();
+      loadMaster();
   }, []);
 
-  const handleIndexToggle = (itemName: string) => {
-      // Resolve canonical name
-      const canonicalName = findIndexName(masterIndices, itemName);
-      const targetName = canonicalName || itemName;
+  const handleIndexTrackToggle = (rawName: string) => {
+      // Use helper to resolve the canonical name from the master list
+      const canonicalName = findIndexName(masterIndexList, rawName);
+      
+      if (!canonicalName) {
+          // Fallback: try using raw name if match fails, though usually unsafe
+          console.warn(`Could not resolve index name: ${rawName}`);
+          return;
+      }
 
-      if (trackedIndices.includes(targetName)) {
-          removeTrackedIndex(targetName);
+      if (trackedIndices.includes(canonicalName)) {
+          removeTrackedIndex(canonicalName);
       } else {
-          addTrackedIndex(targetName);
+          addTrackedIndex(canonicalName);
       }
   };
 
@@ -195,10 +205,7 @@ const SectoralPulse: React.FC<SectoralPulseProps> = ({
                    <table className="w-full text-xs text-left whitespace-nowrap">
                        <thead className="bg-gray-50 text-gray-500 font-bold uppercase tracking-wider border-b border-gray-200 sticky top-0 z-10">
                            <tr>
-                               {activeTab === 'INDEX' && (
-                                   <th className="px-4 py-3 w-10"></th>
-                               )}
-                               
+                               {activeTab === 'INDEX' && <th className="px-4 py-3 w-10 text-center">#</th>}
                                <th className="px-4 py-3 text-left">Name</th>
                                <th className="px-4 py-3 text-right">Price</th>
                                <th className="px-4 py-3 text-center hidden sm:table-cell">Valuation (PE | PB)</th>
@@ -221,13 +228,9 @@ const SectoralPulse: React.FC<SectoralPulseProps> = ({
                                const showDivider = !searchQuery && idx === 5 && displayList.length > 5;
                                const colSpan = activeTab === 'INDEX' ? 7 : 6;
 
-                               // Determine tracking status for INDEX rows
-                               let isTracked = false;
-                               if (activeTab === 'INDEX') {
-                                   const resolvedName = findIndexName(masterIndices, item.name);
-                                   const target = resolvedName || item.name;
-                                   isTracked = trackedIndices.includes(target);
-                               }
+                               // Determine Tracking Status for Index
+                               const canonical = activeTab === 'INDEX' ? findIndexName(masterIndexList, item.name) : null;
+                               const isTracked = canonical ? trackedIndices.includes(canonical) : false;
 
                                return (
                                    <React.Fragment key={`${item.name}-${idx}`}>
@@ -242,9 +245,9 @@ const SectoralPulse: React.FC<SectoralPulseProps> = ({
                                            {activeTab === 'INDEX' && (
                                                <td className="px-4 py-3 text-center">
                                                    <button 
-                                                       onClick={(e) => { e.stopPropagation(); handleIndexToggle(item.name); }}
+                                                       onClick={(e) => { e.stopPropagation(); handleIndexTrackToggle(item.name); }}
                                                        className={`transition-colors ${isTracked ? 'text-indigo-600' : 'text-gray-300 hover:text-gray-500'}`}
-                                                       title={isTracked ? "Remove from Watchlist" : "Add to Watchlist"}
+                                                       title={isTracked ? "Remove Index from Watchlist" : "Add Index to Watchlist"}
                                                    >
                                                        {isTracked ? <CheckSquare size={16} /> : <Square size={16} />}
                                                    </button>
@@ -255,6 +258,17 @@ const SectoralPulse: React.FC<SectoralPulseProps> = ({
                                                <div className="flex items-center gap-2">
                                                    <span className="font-semibold text-gray-800">{item.name}</span>
                                                    
+                                                   {/* Sector Insights Widget (Bulb Icon) */}
+                                                   {item.url && (activeTab === 'SECTOR' || activeTab === 'INDUSTRY') && (
+                                                       <SectorInsightsWidget 
+                                                           sectorName={item.name}
+                                                           sectorUrl={item.url}
+                                                           onAddToMover={onAddMover}
+                                                           onNavigateStock={onSelectStock}
+                                                           addedSymbols={addedSymbols}
+                                                       />
+                                                   )}
+
                                                    {/* External Link */}
                                                    {item.url && (
                                                        <a 
@@ -266,17 +280,6 @@ const SectoralPulse: React.FC<SectoralPulseProps> = ({
                                                        >
                                                            <ExternalLink size={12} />
                                                        </a>
-                                                   )}
-
-                                                   {/* Sector Insights Widget (Bulb Icon) */}
-                                                   {item.url && (activeTab === 'SECTOR' || activeTab === 'INDUSTRY') && (
-                                                       <SectorInsightsWidget 
-                                                           sectorName={item.name}
-                                                           sectorUrl={item.url}
-                                                           onAddToMover={onAddMover}
-                                                           onNavigateStock={onSelectStock}
-                                                           addedSymbols={addedSymbols}
-                                                       />
                                                    )}
                                                </div>
                                            </td>

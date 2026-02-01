@@ -37,6 +37,8 @@ export function extractMultipleAttributes(
   return result;
 }
 
+
+
 export type IndexRecord = {
   index: string;
   [key: string]: any;

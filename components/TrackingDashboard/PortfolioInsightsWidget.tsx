@@ -24,6 +24,7 @@ const PortfolioInsightsWidget: React.FC<PortfolioInsightsWidgetProps> = ({
   const [hasFetched, setHasFetched] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [trackedSet, setTrackedSet] = useState<Set<string>>(new Set());
+  const [showAllStocks, setShowAllStocks] = useState(false);
 
   // Load tracked items and listen for updates
   useEffect(() => {
@@ -111,6 +112,8 @@ const PortfolioInsightsWidget: React.FC<PortfolioInsightsWidgetProps> = ({
               return item.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
                      item.insightText.toLowerCase().includes(searchQuery.toLowerCase());
           }
+          if (showAllStocks) return true;
+          
           // Default: Show items that are in user's tracking list
           return trackedSet.has(item.symbol);
       })
@@ -141,7 +144,7 @@ const PortfolioInsightsWidget: React.FC<PortfolioInsightsWidgetProps> = ({
             {isLoading && !isOpen ? (
                 <Loader2 size={10} className="animate-spin" />
             ) : (
-                <Lightbulb size={10} className={hasFetched ? "fill-indigo-700" : ""} />
+                <Lightbulb size={12} className={hasFetched ? "fill-indigo-700" : ""} />
             )}
             
             {hasFetched && !isLoading ? activeCategoriesCount : ''}
@@ -166,6 +169,16 @@ const PortfolioInsightsWidget: React.FC<PortfolioInsightsWidgetProps> = ({
                         </div>
                         
                         <div className="flex items-center gap-2">
+                             <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer mr-2 select-none hover:text-indigo-600 font-medium bg-white px-2 py-1.5 rounded-lg border border-gray-200 hover:border-indigo-200 transition-all">
+                                <input 
+                                    type="checkbox" 
+                                    checked={showAllStocks} 
+                                    onChange={(e) => setShowAllStocks(e.target.checked)}
+                                    className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                />
+                                Show Stocks
+                             </label>
+
                              <button 
                                 onClick={handleRefresh}
                                 disabled={isLoading}
@@ -213,7 +226,7 @@ const PortfolioInsightsWidget: React.FC<PortfolioInsightsWidgetProps> = ({
                                 ) : (
                                     <>
                                         <p className="text-sm font-medium text-gray-600">No tracked stocks active in current categories.</p>
-                                        <p className="text-xs text-gray-400">Search above or add more stocks to your watchlist.</p>
+                                        <p className="text-xs text-gray-400">Check "Show Stocks" above or add more stocks to your watchlist.</p>
                                     </>
                                 )}
                             </div>

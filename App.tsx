@@ -23,7 +23,10 @@ function App() {
   const [sectoralData, setSectoralData] = useState<SectoralData | null>(null);
 
   // --- Lifted State for Bulk Insights (Deep Dive) ---
-  const deepDiveExtraction = useInsightExtraction();
+  const [bulkResults, setBulkResults] = useState<Record<string, InsightResultItem[]>>({});
+  const [bulkStatus, setBulkStatus] = useState<'idle' | 'initializing' | 'polling' | 'completed' | 'error'>('idle');
+  const [bulkProgress, setBulkProgress] = useState({ completed: 0, total: 0 });
+  const [requestId, setRequestId] = useState<string | null>(null);
 
   // --- Lifted State for Intelligent Tracking ---
   const intelligentExtraction = useInsightExtraction();
@@ -86,7 +89,14 @@ function App() {
             sectoralData={sectoralData}
             setSectoralData={setSectoralData}
             // Pass lifted state for Deep Dive
-            deepDiveExtraction={deepDiveExtraction}
+            bulkResults={bulkResults}
+            setBulkResults={setBulkResults}
+            bulkStatus={bulkStatus}
+            setBulkStatus={setBulkStatus}
+            bulkProgress={bulkProgress}
+            setBulkProgress={setBulkProgress}
+            requestId={requestId}
+            setRequestId={setRequestId}
             // Pass lifted state for Intelligent Tracking
             intelligentExtraction={intelligentExtraction}
             intelligentState={intelligentState}
@@ -124,7 +134,14 @@ function App() {
             setMoversData={setMoversData}
             sectoralData={sectoralData}
             setSectoralData={setSectoralData}
-            deepDiveExtraction={deepDiveExtraction}
+            bulkResults={bulkResults}
+            setBulkResults={setBulkResults}
+            bulkStatus={bulkStatus}
+            setBulkStatus={setBulkStatus}
+            bulkProgress={bulkProgress}
+            setBulkProgress={setBulkProgress}
+            requestId={requestId}
+            setRequestId={setRequestId}
             intelligentExtraction={intelligentExtraction}
             intelligentState={intelligentState}
             setIntelligentState={setIntelligentState}

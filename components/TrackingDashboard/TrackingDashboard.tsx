@@ -27,8 +27,14 @@ interface TrackingDashboardProps {
   setSectoralData: React.Dispatch<React.SetStateAction<SectoralData | null>>;
 
   // Deep Dive State
-  deepDiveExtraction: ReturnType<typeof useInsightExtraction>;
-
+  bulkResults: Record<string, InsightResultItem[]>;
+  setBulkResults: React.Dispatch<React.SetStateAction<Record<string, InsightResultItem[]>>>;
+  bulkStatus: 'idle' | 'initializing' | 'polling' | 'completed' | 'error';
+  setBulkStatus: React.Dispatch<React.SetStateAction<'idle' | 'initializing' | 'polling' | 'completed' | 'error'>>;
+  bulkProgress: { completed: number; total: number };
+  setBulkProgress: React.Dispatch<React.SetStateAction<{ completed: number; total: number }>>;
+  requestId: string | null;
+  setRequestId: React.Dispatch<React.SetStateAction<string | null>>;
   // Intelligent State
   intelligentExtraction: ReturnType<typeof useInsightExtraction>;
   intelligentState: IntelligentState;
@@ -44,7 +50,14 @@ const TrackingDashboard: React.FC<TrackingDashboardProps> = ({
   setMoversData,
   sectoralData,
   setSectoralData,
-  deepDiveExtraction,
+  bulkResults,
+  setBulkResults,
+  bulkStatus,
+  setBulkStatus,
+  bulkProgress,
+  setBulkProgress,
+  requestId,
+  setRequestId,
   intelligentExtraction,
   intelligentState,
   setIntelligentState
@@ -327,7 +340,14 @@ const TrackingDashboard: React.FC<TrackingDashboardProps> = ({
          {activeStreamTab === 'DEEP_DIVE' && (
             <BulkInsightManager 
                 items={entities}
-                extractionData={deepDiveExtraction}
+                results={bulkResults}
+                setResults={setBulkResults}
+                status={bulkStatus}
+                setStatus={setBulkStatus}
+                progress={bulkProgress}
+                setProgress={setBulkProgress}
+                requestId={requestId}
+                setRequestId={setRequestId}
                 onOpenChat={(ctx) => setChatContext(ctx)}
                 onSelectStock={onSelectStock}
             />

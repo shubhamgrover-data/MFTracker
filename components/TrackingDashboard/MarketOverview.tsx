@@ -461,17 +461,7 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({
             </div>
         </div>
 
-        {/* Section 2: Portfolio Updates */}
-        <PortfolioUpdates 
-            moversData={moversData} 
-            onAddMover={handleAddMover} 
-            onRefreshMover={handleRefreshMover}
-            onRemoveMover={handleRemoveMover}
-            isLoadingExternal={loadingMover}
-            onViewDetails={onSelectStock} 
-        />
-
-        {/* Section 3: Sectoral/Industrial Pulse */}
+        {/* Section 2: Sectoral/Industrial Pulse interchanged posiiton as per requirement*/}
         <SectoralPulse 
             data={sectoralData}
             loading={loadingSector}
@@ -481,6 +471,16 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({
             onAddMover={handleAddMover}
             onSelectStock={onSelectStock}
             addedSymbols={moverSymbols}
+        />
+
+           {/* Section 3: Portfolio Updates, interchanged position as per requirement */}
+        <PortfolioUpdates 
+            moversData={moversData} 
+            onAddMover={handleAddMover} 
+            onRefreshMover={handleRefreshMover}
+            onRemoveMover={handleRemoveMover}
+            isLoadingExternal={loadingMover}
+            onViewDetails={onSelectStock} 
         />
     </div>
      
