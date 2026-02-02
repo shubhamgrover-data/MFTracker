@@ -1,9 +1,9 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { StockPriceData } from "../types";
+import { StockPriceData } from "../types/types";
 import { Insight } from "../types/trackingTypes";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: 'AIzaSyARY3QBFsrYX_d0K_6NLVhvLBVgYcCzrAE' });
 const GEMINI_MODEL_NAME = "gemini-2.5-flash-lite";
 
 // New function to parse HTML for Stock Data
