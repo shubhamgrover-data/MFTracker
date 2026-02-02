@@ -3,7 +3,32 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { StockPriceData } from "../types/types";
 import { Insight } from "../types/trackingTypes";
 
-const ai = new GoogleGenAI({ apiKey: 'AIzaSyARY3QBFsrYX_d0K_6NLVhvLBVgYcCzrAE' });
+const DEFAULT_API_KEY = 'AIzaSyARY3QBFsrYX_d0K_6NLVhvLBVgYcCzrAE';
+const STORAGE_KEY_API = 'GEMINI_API_KEY';
+
+let ai: GoogleGenAI;
+
+const initAI = () => {
+  const key = localStorage.getItem(STORAGE_KEY_API) || DEFAULT_API_KEY;
+  ai = new GoogleGenAI({ apiKey: key });
+};
+
+// Initialize immediately
+initAI();
+
+export const updateGeminiApiKey = (key: string) => {
+    if (!key) {
+        localStorage.removeItem(STORAGE_KEY_API);
+    } else {
+        localStorage.setItem(STORAGE_KEY_API, key);
+    }
+    initAI();
+};
+
+export const getGeminiApiKey = () => {
+    return localStorage.getItem(STORAGE_KEY_API) || DEFAULT_API_KEY;
+};
+
 const GEMINI_MODEL_NAME = "gemini-2.5-flash-lite";
 
 // New function to parse HTML for Stock Data
@@ -297,6 +322,6 @@ export const getChatResponse = async (history: {role: string, parts: {text: stri
         return result.text;
     } catch (e) {
         console.error("Chat error", e);
-        return "I'm having trouble connecting to the analysis engine right now (Quota Exceeded).";
+        return "I'm having trouble connecting to the analysis engine right now (Quota Exceeded or Network Error).";
     }
 }
