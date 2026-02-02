@@ -65,7 +65,7 @@ export const JSONFORMAT = [
       }
     }
   }`
-];
+}];
 
 
 // Prompts (each refers to its JSON format by id)
