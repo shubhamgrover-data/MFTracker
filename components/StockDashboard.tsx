@@ -1,10 +1,11 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { ArrowLeft, ExternalLink,History, TrendingUp, TrendingDown, Layers, Loader2, Search, Filter, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, BarChart2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, ExternalLink,History, TrendingUp, TrendingDown, Layers, Loader2, Search, Filter, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, BarChart2, RefreshCw, ChevronDown, ChevronUp, CheckSquare, Square } from 'lucide-react';
 import { StockPriceData, StockMFAnalysis, MutualFundHolding, FundSearchResult } from '../types';
 import { fetchLiveStockPrice, fetchMutualFundHoldingsForStock } from '../services/dataService';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import StockDeepDive from './StockDeepDive';
+import { getTrackedItems, addTrackedItem, removeTrackedItem } from '../services/trackingStorage';
 
 interface StockDashboardProps {
   symbol: string;
@@ -34,6 +35,24 @@ const StockDashboard: React.FC<StockDashboardProps> = ({ symbol, stockName, onBa
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Section visibility states
+  const [isHoldingsExpanded, setIsHoldingsExpanded] = useState(true);
+
+  // MF Tracking State
+  const [trackedMFSet, setTrackedMFSet] = useState<Set<string>>(new Set());
+  const [showTrackedOnly, setShowTrackedOnly] = useState(false);
+
+  // Load tracked items
+  useEffect(() => {
+      const updateTracked = () => {
+          const items = getTrackedItems().filter(i => i.type === 'MF');
+          setTrackedMFSet(new Set(items.map(i => i.id))); // Use ID which might be PK or Name
+      };
+      updateTracked();
+      window.addEventListener('fundflow_tracking_update', updateTracked);
+      return () => window.removeEventListener('fundflow_tracking_update', updateTracked);
+  }, []);
 
   const loadData = async () => {
       setLoadingPrice(true);
@@ -83,6 +102,29 @@ const StockDashboard: React.FC<StockDashboardProps> = ({ symbol, stockName, onBa
     return sortedMonths;
   }, [mfData, sortMonth]);
 
+  // Helper to extract ID from URL or Name
+  const getMfId = (url: string, name: string) => {
+      const matches = url.match(/\/(\d+)\//);
+      if (matches && matches[1]) return matches[1];
+      return name;
+  };
+
+  const handleTrackMF = (e: React.MouseEvent, mfName: string, mfUrl: string) => {
+      e.stopPropagation();
+      const id = getMfId(mfUrl, mfName);
+      
+      // Check if tracked by checking if ID is in set or Name is in set (fallback)
+      const isTracked = trackedMFSet.has(id) || trackedMFSet.has(mfName);
+
+      if (isTracked) {
+          // Try removing by both potential keys
+          removeTrackedItem(id, 'MF');
+          removeTrackedItem(mfName, 'MF');
+      } else {
+          addTrackedItem({ id, name: mfName, type: 'MF', url: mfUrl });
+      }
+  };
+
   // Filter and Sort Logic
   const filteredSortedHoldings = useMemo(() => {
     if (!mfData) return [];
@@ -90,6 +132,13 @@ const StockDashboard: React.FC<StockDashboardProps> = ({ symbol, stockName, onBa
     let result = mfData.holdings.filter(h => 
       h.fundName.toLowerCase().includes(filterQuery.toLowerCase())
     );
+
+    if (showTrackedOnly) {
+        result = result.filter(h => {
+            const id = getMfId(h.fundUrl, h.fundName);
+            return trackedMFSet.has(id) || trackedMFSet.has(h.fundName);
+        });
+    }
 
     const targetMonth = sortMonth || monthColumns[0];
 
@@ -107,7 +156,7 @@ const StockDashboard: React.FC<StockDashboardProps> = ({ symbol, stockName, onBa
     });
 
     return result;
-  }, [mfData, filterQuery, sortField, sortDirection, sortMonth, monthColumns]);
+  }, [mfData, filterQuery, sortField, sortDirection, sortMonth, monthColumns, showTrackedOnly, trackedMFSet]);
 
   // Pagination Logic
   const totalPages = Math.ceil(filteredSortedHoldings.length / ITEMS_PER_PAGE);
@@ -119,7 +168,7 @@ const StockDashboard: React.FC<StockDashboardProps> = ({ symbol, stockName, onBa
   // Reset pagination when filter/sort changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterQuery, sortField, sortDirection, sortMonth]);
+  }, [filterQuery, sortField, sortDirection, sortMonth, showTrackedOnly]);
 
   const handleSort = (field: SortField, month: string) => {
     if (sortField === field && sortMonth === month) {
@@ -250,257 +299,317 @@ const StockDashboard: React.FC<StockDashboardProps> = ({ symbol, stockName, onBa
         </div>
       </div>
       
-      {/* Deep Dive Analysis Component */}
+      {/* Deep Dive Analysis Component (Collapsible Managed Internally) */}
       <StockDeepDive symbol={symbol} stockName={stockName} />
 
       {/* Holdings Table Section */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-gray-100 bg-gray-50 flex flex-col md:flex-row gap-4 items-center justify-between">
-           <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-              <Layers size={18} className="text-indigo-600" />
-              Mutual Fund Portfolios
-           </h3>
+        {/* Header */}
+        <div 
+            className="p-4 border-b border-gray-100 bg-gray-50 flex flex-col md:flex-row gap-4 items-center justify-between cursor-pointer hover:bg-gray-100 transition-colors"
+            onClick={() => setIsHoldingsExpanded(!isHoldingsExpanded)}
+        >
+           <div className="flex items-center gap-3">
+               <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg">
+                   <Layers size={18} />
+               </div>
+               <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                  Mutual Fund Portfolios
+                  {!isHoldingsExpanded && <span className="text-xs text-gray-400 font-normal">({filteredSortedHoldings.length} records)</span>}
+               </h3>
+           </div>
            
-           <div className="relative w-full md:w-72">
-              <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                <Search className="w-4 h-4 text-gray-400" />
-              </div>
-              <input 
-                type="text" 
-                className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 p-2.5 shadow-sm" 
-                placeholder="Filter funds..." 
-                value={filterQuery}
-                onChange={(e) => setFilterQuery(e.target.value)}
-              />
+           <div className="flex items-center gap-4 w-full md:w-auto" onClick={(e) => e.stopPropagation()}>
+               {/* Tracked Filter */}
+               {isHoldingsExpanded && (
+                   <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none bg-white px-2 py-1.5 rounded-lg border border-gray-200 hover:border-indigo-200 transition-all">
+                        <input 
+                            type="checkbox" 
+                            checked={showTrackedOnly} 
+                            onChange={(e) => setShowTrackedOnly(e.target.checked)}
+                            className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-medium">Tracked MFs</span>
+                        {showTrackedOnly && (
+                            <span className="bg-indigo-100 text-indigo-700 text-[10px] px-1.5 rounded-full font-bold">
+                                {filteredSortedHoldings.length}
+                            </span>
+                        )}
+                   </label>
+               )}
+
+               {/* Search */}
+               {isHoldingsExpanded && (
+                   <div className="relative w-full md:w-64">
+                      <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                        <Search className="w-4 h-4 text-gray-400" />
+                      </div>
+                      <input 
+                        type="text" 
+                        className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-9 p-2 shadow-sm" 
+                        placeholder="Filter funds..." 
+                        value={filterQuery}
+                        onChange={(e) => setFilterQuery(e.target.value)}
+                      />
+                   </div>
+               )}
+
+               <button 
+                   className="text-gray-400 hover:text-gray-600"
+                   onClick={() => setIsHoldingsExpanded(!isHoldingsExpanded)}
+               >
+                   {isHoldingsExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+               </button>
            </div>
         </div>
 
-        <div className="overflow-x-auto">
-          {loadingMF ? (
-            <div className="p-12 flex flex-col items-center justify-center text-gray-400 gap-3">
-               <Loader2 className="animate-spin text-indigo-500" size={32} />
-               <p>Fetching detailed holdings...</p>
-            </div>
-          ) : (
-            <table className="w-full text-sm text-left text-gray-500 border-collapse">
-              <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b border-gray-200">
-                {/* Header Row 1: Grouped Month Names */}
-                <tr>
-                  <th rowSpan={2} className="px-6 py-4 font-semibold border-r border-gray-200 bg-gray-50 sticky left-0 z-10 w-64 min-w-[250px]">
-                    MF
-                  </th>
-                  {monthColumns.map((month, index) => (
-                    <th 
-                      key={month} 
-                      colSpan={index === 0 ? 4 : 2} // Latest month gets 4 columns (removed AUM Cr), others get 2
-                      className={`px-4 py-2 text-center border-r border-gray-200 ${index === 0 ? 'bg-indigo-50 text-indigo-900 font-bold' : ''}`}
-                    >
-                      {month}
-                    </th>
-                  ))}
-                </tr>
-                {/* Header Row 2: Columns */}
-                <tr>
-                  {monthColumns.map((month, index) => (
-                     <React.Fragment key={`${month}-subheaders`}>
-                       {index === 0 ? (
-                         // Full columns for latest month (Removed AUM Cr)
-                         <>
-                           <th 
-                             className="px-4 py-2 text-right cursor-pointer hover:bg-gray-100 group border-r border-gray-100"
-                             onClick={() => handleSort('aumPercent', month)}
-                           >
-                             <div className="flex items-center justify-end">AUM % <SortIcon field="aumPercent" month={month}/></div>
-                           </th>
-                           <th 
-                             className="px-4 py-2 text-right cursor-pointer hover:bg-gray-100 group border-r border-gray-100"
-                             onClick={() => handleSort('sharesHeld', month)}
-                           >
-                             <div className="flex items-center justify-end">Shares Held <SortIcon field="sharesHeld" month={month}/></div>
-                           </th>
-                           <th 
-                             className="px-4 py-2 text-right cursor-pointer hover:bg-gray-100 group border-r border-gray-100"
-                             onClick={() => handleSort('change', month)}
-                           >
-                             <div className="flex items-center justify-end">Month Change <SortIcon field="change" month={month}/></div>
-                           </th>
-                           <th 
-                             className="px-4 py-2 text-right cursor-pointer hover:bg-gray-100 group border-r border-gray-200"
-                             onClick={() => handleSort('changePercent', month)}
-                           >
-                             <div className="flex items-center justify-end">Change % <SortIcon field="changePercent" month={month}/></div>
-                           </th>
-                         </>
-                       ) : (
-                         // Reduced columns for other months
-                         <>
-                           <th 
-                            className="px-4 py-2 text-right cursor-pointer hover:bg-gray-100 group border-r border-gray-100"
-                            onClick={() => handleSort('sharesHeld', month)}
-                           >
-                             <div className="flex items-center justify-end">Shares Held <SortIcon field="sharesHeld" month={month}/></div>
-                           </th>
-                           <th 
-                            className="px-4 py-2 text-right cursor-pointer hover:bg-gray-100 group border-r border-gray-200"
-                            onClick={() => handleSort('changePercent', month)}
-                           >
-                             <div className="flex items-center justify-end">Change % <SortIcon field="changePercent" month={month}/></div>
-                           </th>
-                         </>
-                       )}
-                     </React.Fragment>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {paginatedHoldings.length > 0 ? paginatedHoldings.map((holding, idx) => (
-                  <tr key={idx} className="bg-white hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 border-r border-gray-100 sticky left-0 bg-white group-hover:bg-gray-50 z-10">
-                      <div className="flex items-center gap-2 group/link">
-                        {holding.historyUrl && (
-                           <a 
-                             href={holding.historyUrl} 
-                             target="_blank" 
-                             rel="noreferrer"
-                             className="text-gray-300 hover:text-indigo-500 transition-colors opacity-0 group-hover/link:opacity-100"
-                             title="View on Trendlyne"
-                           >
-                             <History size={14} />
-                           </a>
+        {/* Collapsible Content */}
+        {isHoldingsExpanded && (
+            <>
+                <div className="overflow-x-auto">
+                  {loadingMF ? (
+                    <div className="p-12 flex flex-col items-center justify-center text-gray-400 gap-3">
+                       <Loader2 className="animate-spin text-indigo-500" size={32} />
+                       <p>Fetching detailed holdings...</p>
+                    </div>
+                  ) : (
+                    <table className="w-full text-sm text-left text-gray-500 border-collapse">
+                      <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b border-gray-200">
+                        {/* Header Row 1: Grouped Month Names */}
+                        <tr>
+                          <th rowSpan={2} className="px-6 py-4 font-semibold border-r border-gray-200 bg-gray-50 sticky left-0 z-10 w-64 min-w-[250px]">
+                            MF Name
+                          </th>
+                          {monthColumns.map((month, index) => (
+                            <th 
+                              key={month} 
+                              colSpan={index === 0 ? 4 : 2} // Latest month gets 4 columns (removed AUM Cr), others get 2
+                              className={`px-4 py-2 text-center border-r border-gray-200 ${index === 0 ? 'bg-indigo-50 text-indigo-900 font-bold' : ''}`}
+                            >
+                              {month}
+                            </th>
+                          ))}
+                        </tr>
+                        {/* Header Row 2: Columns */}
+                        <tr>
+                          {monthColumns.map((month, index) => (
+                             <React.Fragment key={`${month}-subheaders`}>
+                               {index === 0 ? (
+                                 // Full columns for latest month (Removed AUM Cr)
+                                 <>
+                                   <th 
+                                     className="px-4 py-2 text-right cursor-pointer hover:bg-gray-100 group border-r border-gray-100"
+                                     onClick={() => handleSort('aumPercent', month)}
+                                   >
+                                     <div className="flex items-center justify-end">AUM % <SortIcon field="aumPercent" month={month}/></div>
+                                   </th>
+                                   <th 
+                                     className="px-4 py-2 text-right cursor-pointer hover:bg-gray-100 group border-r border-gray-100"
+                                     onClick={() => handleSort('sharesHeld', month)}
+                                   >
+                                     <div className="flex items-center justify-end">Shares Held <SortIcon field="sharesHeld" month={month}/></div>
+                                   </th>
+                                   <th 
+                                     className="px-4 py-2 text-right cursor-pointer hover:bg-gray-100 group border-r border-gray-100"
+                                     onClick={() => handleSort('change', month)}
+                                   >
+                                     <div className="flex items-center justify-end">Month Change <SortIcon field="change" month={month}/></div>
+                                   </th>
+                                   <th 
+                                     className="px-4 py-2 text-right cursor-pointer hover:bg-gray-100 group border-r border-gray-200"
+                                     onClick={() => handleSort('changePercent', month)}
+                                   >
+                                     <div className="flex items-center justify-end">Change % <SortIcon field="changePercent" month={month}/></div>
+                                   </th>
+                                 </>
+                               ) : (
+                                 // Reduced columns for other months
+                                 <>
+                                   <th 
+                                    className="px-4 py-2 text-right cursor-pointer hover:bg-gray-100 group border-r border-gray-100"
+                                    onClick={() => handleSort('sharesHeld', month)}
+                                   >
+                                     <div className="flex items-center justify-end">Shares Held <SortIcon field="sharesHeld" month={month}/></div>
+                                   </th>
+                                   <th 
+                                    className="px-4 py-2 text-right cursor-pointer hover:bg-gray-100 group border-r border-gray-200"
+                                    onClick={() => handleSort('changePercent', month)}
+                                   >
+                                     <div className="flex items-center justify-end">Change % <SortIcon field="changePercent" month={month}/></div>
+                                   </th>
+                                 </>
+                               )}
+                             </React.Fragment>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {paginatedHoldings.length > 0 ? paginatedHoldings.map((holding, idx) => {
+                            const mfId = getMfId(holding.fundUrl, holding.fundName);
+                            const isTracked = trackedMFSet.has(mfId) || trackedMFSet.has(holding.fundName);
+
+                            return (
+                              <tr key={idx} className="bg-white hover:bg-gray-50 transition-colors">
+                                <td className="px-6 py-4 border-r border-gray-100 sticky left-0 bg-white group-hover:bg-gray-50 z-10">
+                                  <div className="flex items-center gap-3">
+                                    {/* Track Toggle */}
+                                    <button 
+                                        onClick={(e) => handleTrackMF(e, holding.fundName, holding.fundUrl)}
+                                        className={`transition-colors ${isTracked ? 'text-indigo-600' : 'text-gray-300 hover:text-gray-500'}`}
+                                        title={isTracked ? "Remove MF from Watchlist" : "Add MF to Watchlist"}
+                                    >
+                                        {isTracked ? <CheckSquare size={16} /> : <Square size={16} />}
+                                    </button>
+
+                                    <div className="flex items-center gap-2 group/link">
+                                      {holding.historyUrl && (
+                                         <a 
+                                           href={holding.historyUrl} 
+                                           target="_blank" 
+                                           rel="noreferrer"
+                                           className="text-gray-300 hover:text-indigo-500 transition-colors opacity-0 group-hover/link:opacity-100"
+                                           title="View on Trendlyne"
+                                         >
+                                           <History size={14} />
+                                         </a>
+                                      )}
+                                      <button 
+                                        onClick={() => onSelectFund({ name: holding.fundName, url: holding.fundUrl })}
+                                        className="font-medium text-indigo-600 hover:text-indigo-800 text-left transition-colors line-clamp-2"
+                                      >
+                                        {holding.fundName}
+                                      </button>
+                                      {holding.fundUrl && (
+                                         <a 
+                                           href={holding.fundUrl} 
+                                           target="_blank" 
+                                           rel="noreferrer"
+                                           className="text-gray-300 hover:text-indigo-500 transition-colors opacity-0 group-hover/link:opacity-100"
+                                           title="View on Trendlyne"
+                                         >
+                                           <ExternalLink size={14} />
+                                         </a>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+                                
+                                {monthColumns.map((month, mIndex) => {
+                                  const data = holding.history.find(h => h.month === month);
+                                  const isLatest = mIndex === 0;
+
+                                  if (!data) {
+                                    return (
+                                      <React.Fragment key={`${month}-empty`}>
+                                         {isLatest ? (
+                                           <>
+                                             <td className="px-4 py-4 text-right text-gray-300 border-r border-gray-100">-</td>
+                                             <td className="px-4 py-4 text-right text-gray-300 border-r border-gray-100">-</td>
+                                             <td className="px-4 py-4 text-right text-gray-300 border-r border-gray-100">-</td>
+                                             <td className="px-4 py-4 text-right text-gray-300 border-r border-gray-200">-</td>
+                                           </>
+                                         ) : (
+                                           <>
+                                             <td className="px-4 py-4 text-right text-gray-300 border-r border-gray-100">-</td>
+                                             <td className="px-4 py-4 text-right text-gray-300 border-r border-gray-200">-</td>
+                                           </>
+                                         )}
+                                      </React.Fragment>
+                                    );
+                                  }
+
+                                  return (
+                                    <React.Fragment key={`${month}-data`}>
+                                      {isLatest ? (
+                                         <>
+                                           {/* AUM % */}
+                                           <td className="px-4 py-4 text-right font-mono text-gray-700 border-r border-gray-100 bg-indigo-50/20">
+                                             {data.aumPercent ? `${data.aumPercent.toFixed(2)}%` : '-'}
+                                           </td>
+                                           {/* Shares Held */}
+                                           <td className="px-4 py-4 text-right font-mono text-gray-900 font-medium border-r border-gray-100 bg-indigo-50/30">
+                                             {data.sharesHeld.toLocaleString()}
+                                           </td>
+                                           {/* Month Change (Absolute) */}
+                                           <td className="px-4 py-4 text-right font-mono border-r border-gray-100 bg-indigo-50/20">
+                                              {data.change ? (
+                                                 <span className={data.change > 0 ? 'text-green-600' : data.change < 0 ? 'text-red-600' : 'text-gray-400'}>
+                                                   {data.change.toLocaleString()}
+                                                 </span>
+                                              ) : <span className="text-gray-300">0</span>}
+                                           </td>
+                                           {/* Month Change % */}
+                                           <td className="px-4 py-4 text-right font-mono border-r border-gray-200 bg-indigo-50/20">
+                                             <div className={`flex items-center justify-end gap-1 ${
+                                               data.changePercent > 0 ? 'text-green-600 font-medium' : 
+                                               data.changePercent < 0 ? 'text-red-600 font-medium' : 'text-gray-400'
+                                             }`}>
+                                                {data.changePercent > 0 ? `+${data.changePercent}%` : `${data.changePercent}%`}
+                                             </div>
+                                           </td>
+                                         </>
+                                      ) : (
+                                         <>
+                                           {/* Previous Month Shares */}
+                                           <td className="px-4 py-4 text-right font-mono text-gray-600 border-r border-gray-100">
+                                             {data.sharesHeld.toLocaleString()}
+                                           </td>
+                                           {/* Previous Month Change % */}
+                                           <td className="px-4 py-4 text-right font-mono border-r border-gray-200">
+                                             <span className={data.changePercent > 0 ? 'text-green-600' : data.changePercent < 0 ? 'text-red-600' : 'text-gray-400'}>
+                                               {data.changePercent}%
+                                             </span>
+                                           </td>
+                                         </>
+                                      )}
+                                    </React.Fragment>
+                                  );
+                                })}
+                              </tr>
+                            );
+                        }) : (
+                           <tr>
+                             <td colSpan={1 + (monthColumns.length * 2) + 2} className="px-6 py-12 text-center text-gray-400">
+                               {showTrackedOnly ? "No tracked funds in this stock's holdings." : "No funds found matching your search."}
+                             </td>
+                           </tr>
                         )}
-                        <button 
-                          onClick={() => onSelectFund({ name: holding.fundName, url: holding.fundUrl })}
-                          className="font-medium text-indigo-600 hover:text-indigo-800 text-left transition-colors line-clamp-2"
-                        >
-                          {holding.fundName}
-                        </button>
-                        {holding.fundUrl && (
-                           <a 
-                             href={holding.fundUrl} 
-                             target="_blank" 
-                             rel="noreferrer"
-                             className="text-gray-300 hover:text-indigo-500 transition-colors opacity-0 group-hover/link:opacity-100"
-                             title="View on Trendlyne"
-                           >
-                             <ExternalLink size={14} />
-                           </a>
-                        )}
-                      </div>
-                    </td>
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+                
+                {mfData && filteredSortedHoldings.length > 0 && (
+                  <div className="p-4 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="text-xs text-gray-500">
+                      Showing {paginatedHoldings.length} of {filteredSortedHoldings.length} funds
+                      {mfData.sourceUrl && " • Data Source: Trendlyne"}
+                    </div>
                     
-                    {monthColumns.map((month, mIndex) => {
-                      const data = holding.history.find(h => h.month === month);
-                      const isLatest = mIndex === 0;
-
-                      if (!data) {
-                        return (
-                          <React.Fragment key={`${month}-empty`}>
-                             {isLatest ? (
-                               <>
-                                 <td className="px-4 py-4 text-right text-gray-300 border-r border-gray-100">-</td>
-                                 <td className="px-4 py-4 text-right text-gray-300 border-r border-gray-100">-</td>
-                                 <td className="px-4 py-4 text-right text-gray-300 border-r border-gray-100">-</td>
-                                 <td className="px-4 py-4 text-right text-gray-300 border-r border-gray-200">-</td>
-                               </>
-                             ) : (
-                               <>
-                                 <td className="px-4 py-4 text-right text-gray-300 border-r border-gray-100">-</td>
-                                 <td className="px-4 py-4 text-right text-gray-300 border-r border-gray-200">-</td>
-                               </>
-                             )}
-                          </React.Fragment>
-                        );
-                      }
-
-                      return (
-                        <React.Fragment key={`${month}-data`}>
-                          {isLatest ? (
-                             <>
-                               {/* AUM % */}
-                               <td className="px-4 py-4 text-right font-mono text-gray-700 border-r border-gray-100 bg-indigo-50/20">
-                                 {data.aumPercent ? `${data.aumPercent.toFixed(2)}%` : '-'}
-                               </td>
-                               {/* Shares Held */}
-                               <td className="px-4 py-4 text-right font-mono text-gray-900 font-medium border-r border-gray-100 bg-indigo-50/30">
-                                 {data.sharesHeld.toLocaleString()}
-                               </td>
-                               {/* Month Change (Absolute) */}
-                               <td className="px-4 py-4 text-right font-mono border-r border-gray-100 bg-indigo-50/20">
-                                  {data.change ? (
-                                     <span className={data.change > 0 ? 'text-green-600' : data.change < 0 ? 'text-red-600' : 'text-gray-400'}>
-                                       {data.change.toLocaleString()}
-                                     </span>
-                                  ) : <span className="text-gray-300">0</span>}
-                               </td>
-                               {/* Month Change % */}
-                               <td className="px-4 py-4 text-right font-mono border-r border-gray-200 bg-indigo-50/20">
-                                 <div className={`flex items-center justify-end gap-1 ${
-                                   data.changePercent > 0 ? 'text-green-600 font-medium' : 
-                                   data.changePercent < 0 ? 'text-red-600 font-medium' : 'text-gray-400'
-                                 }`}>
-                                    {data.changePercent > 0 ? `+${data.changePercent}%` : `${data.changePercent}%`}
-                                 </div>
-                               </td>
-                             </>
-                          ) : (
-                             <>
-                               {/* Previous Month Shares */}
-                               <td className="px-4 py-4 text-right font-mono text-gray-600 border-r border-gray-100">
-                                 {data.sharesHeld.toLocaleString()}
-                               </td>
-                               {/* Previous Month Change % */}
-                               <td className="px-4 py-4 text-right font-mono border-r border-gray-200">
-                                 <span className={data.changePercent > 0 ? 'text-green-600' : data.changePercent < 0 ? 'text-red-600' : 'text-gray-400'}>
-                                   {data.changePercent}%
-                                 </span>
-                               </td>
-                             </>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                  </tr>
-                )) : (
-                   <tr>
-                     <td colSpan={1 + (monthColumns.length * 2) + 2} className="px-6 py-12 text-center text-gray-400">
-                       No funds found matching your search.
-                     </td>
-                   </tr>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                        className="p-2 rounded-lg border border-gray-200 bg-white text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 transition-colors"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                      
+                      <span className="text-sm font-medium text-gray-700 px-2">
+                        Page {currentPage} of {totalPages}
+                      </span>
+                      
+                      <button
+                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                        disabled={currentPage === totalPages}
+                        className="p-2 rounded-lg border border-gray-200 bg-white text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 transition-colors"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  </div>
                 )}
-              </tbody>
-            </table>
-          )}
-        </div>
-        
-        {mfData && filteredSortedHoldings.length > 0 && (
-          <div className="p-4 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="text-xs text-gray-500">
-              Showing {paginatedHoldings.length} of {filteredSortedHoldings.length} funds
-              {mfData.sourceUrl && " • Data Source: Trendlyne"}
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
-                className="p-2 rounded-lg border border-gray-200 bg-white text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 transition-colors"
-              >
-                <ChevronLeft size={16} />
-              </button>
-              
-              <span className="text-sm font-medium text-gray-700 px-2">
-                Page {currentPage} of {totalPages}
-              </span>
-              
-              <button
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                disabled={currentPage === totalPages}
-                className="p-2 rounded-lg border border-gray-200 bg-white text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 transition-colors"
-              >
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
+            </>
         )}
       </div>
     </div>

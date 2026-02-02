@@ -154,7 +154,8 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
               const stockInsights: ProcessedInsight[] = [];
               for (const item of items) {
                   if (item.success && (item.type === 'json' || item.data)) {
-                       const insight = await processIndicatorData(symbol, item.indicatorName, item.data);
+                       // Fix: Cast item.data to any to avoid unknown type error
+                       const insight = await processIndicatorData(symbol, item.indicatorName as string, item.data as any);
                        if (insight.status === 'triggered') {
                            stockInsights.push(insight);
                        }
@@ -432,7 +433,12 @@ const IntelligentTrackingManager: React.FC<IntelligentTrackingManagerProps> = ({
                        insights={insights}
                        isTracked={isTracked(symbol, 'STOCK')}
                        onOpenDeepDive={() => onSelectStock(symbol, symbol)}
-                       onAskAI={() => onOpenChat(insights.map(i => ({ symbol, type: i.type, insight: i.text, rawData: i.data })))}
+                       onAskAI={() => onOpenChat(insights.map((i: ProcessedInsight) => ({ 
+                           symbol, 
+                           type: String(i.type || ''), 
+                           insight: String(i.text || ''), 
+                           rawData: i.data 
+                       })))}
                        onRefresh={() => handleCardRefresh(symbol)}
                        isSelected={selectedSymbols.has(symbol)}
                        onToggleSelect={() => handleToggleSelect(symbol)}

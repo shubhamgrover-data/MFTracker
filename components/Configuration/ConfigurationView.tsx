@@ -67,29 +67,20 @@ const ConfigurationView: React.FC<ConfigurationViewProps> = ({ onSelectStock, on
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 flex-1 min-h-0">
         
-        {/* Column 1: Stocks (Top) & Ignored (Bottom) - 50/50 Split */}
-        <div className="flex flex-col gap-6 h-full min-h-0">
-            <div className="flex-1 min-h-0">
-                <EntityList 
-                  title="Tracked Stocks" 
-                  items={stockItems} 
-                  type="STOCK" 
-                  onRemove={(id) => handleRemove(id, 'STOCK')}
-                  onItemClick={handleItemClick}
-                />
-            </div>
-            <div className="flex-1 min-h-0">
-                <IgnoreList 
-                    items={ignoredItems}
-                    onRemove={handleRemoveIgnored}
-                    onItemClick={handleIgnoreClick}
-                />
-            </div>
+        {/* Column 1: Tracked Stocks */}
+        <div className="h-full min-h-0">
+            <EntityList 
+              title="Tracked Stocks" 
+              items={stockItems} 
+              type="STOCK" 
+              onRemove={(id) => handleRemove(id, 'STOCK')}
+              onItemClick={handleItemClick}
+            />
         </div>
         
-        {/* Column 2: Mutual Funds */}
+        {/* Column 2: Tracked Mutual Funds */}
         <div className="h-full min-h-0">
             <EntityList 
               title="Tracked Mutual Funds" 
@@ -100,7 +91,16 @@ const ConfigurationView: React.FC<ConfigurationViewProps> = ({ onSelectStock, on
             />
         </div>
 
-        {/* Column 3: Indices */}
+        {/* Column 3: Ignored Stocks */}
+        <div className="h-full min-h-0">
+            <IgnoreList 
+                items={ignoredItems}
+                onRemove={handleRemoveIgnored}
+                onItemClick={handleIgnoreClick}
+            />
+        </div>
+
+        {/* Column 4: Tracked Indices */}
         <div className="h-full min-h-0">
             <IndexWatchlist />
         </div>

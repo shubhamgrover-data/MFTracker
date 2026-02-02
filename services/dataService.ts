@@ -907,3 +907,30 @@ export const fetchSectorInsights = async (url: string): Promise<SectorInsightIte
         return [];
     }
 }
+
+// Nifty Total Market Cache
+let niftyTotalMarketCache: Set<string> | null = null;
+
+export const fetchNiftyTotalMarketSymbols = async (): Promise<Set<string>> => {
+    if (niftyTotalMarketCache) return niftyTotalMarketCache;
+
+    try {
+        const url = "https://www.nseindia.com/api/NextApi/apiClient/indexTrackerApi?functionName=getAllIndicesSymbols&&index=NIFTY%20TOTAL%20MKT";
+        const rawData = await fetchFromProxy(url);
+        
+        let data: any = rawData;
+        if (typeof rawData === 'string') {
+            try { data = JSON.parse(rawData); } catch (e) {}
+        }
+
+        if (data && Array.isArray(data.data)) {
+            const symbols = new Set<string>(data.data);
+            niftyTotalMarketCache = symbols;
+            return symbols;
+        }
+        return new Set();
+    } catch (e) {
+        console.error("Error fetching Nifty Total Market symbols", e);
+        return new Set();
+    }
+};

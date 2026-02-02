@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { MarketIndexData, FiiDiiData, SectoralData } from '../../types/trackingTypes';
-import { addTrackedIndex, removeTrackedIndex } from '../../services/trackingStorage';
+import { addTrackedIndex, removeTrackedIndex, getTrackedItems } from '../../services/trackingStorage';
 import { fetchFiiDiiActivity, fetchStockQuote, fetchSectoralAnalysis } from '../../services/dataService';
 import { MARKET_OVERVIEW_INDICES, HEADER_INDICES } from '../../types/constants.ts'
 import { Activity, Search, RefreshCw, CheckSquare, Square, Loader2, TrendingUp, ExternalLink } from 'lucide-react';
@@ -221,6 +221,35 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({
       }
   }, []);
 
+  // Sync Movers with Tracked Items
+  useEffect(() => {
+      const syncTrackedItems = () => {
+          const trackedStocks = getTrackedItems().filter(i => i.type === 'STOCK');
+          setMoversData(currentData => {
+              const existingMap = new Map(currentData.map(m => [m.symbol, m]));
+              const nextData = [...currentData];
+              let changed = false;
+              
+              trackedStocks.forEach(item => {
+                  if (!existingMap.has(item.id)) {
+                      nextData.push({
+                          symbol: item.id,
+                          companyName: item.name,
+                          isLoaded: false // Placeholder state
+                      });
+                      changed = true;
+                  }
+              });
+              
+              return changed ? nextData : currentData;
+          });
+      };
+
+      syncTrackedItems();
+      window.addEventListener('fundflow_tracking_update', syncTrackedItems);
+      return () => window.removeEventListener('fundflow_tracking_update', syncTrackedItems);
+  }, []);
+
   const loadSectorData = async (duration: string) => {
       setLoadingSector(true);
       try {
@@ -271,7 +300,8 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({
           delivery: quote.tradeInfo?.deliveryToTradedQuantity || quote.secInfo?.deliveryTotradedQuantity,
           pdSectorInd: quote.secInfo?.pdSectorInd,
           macro: quote.secInfo?.macro,
-          industryInfo: quote.secInfo?.industryInfo
+          industryInfo: quote.secInfo?.industryInfo,
+          isLoaded: true // Mark as fully loaded
       };
   };
 
@@ -279,21 +309,15 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({
       // Prevent duplicates
       if (moversData.find(m => m.symbol === symbol)) return;
       
-      setLoadingMover(true);
-      try {
-          const quote = await fetchStockQuote(symbol);
-          if (quote && quote.metaData) {
-              const processed = processQuoteData(quote);
-              setMoversData(prev => [...prev, processed]);
-          }
-      } catch (e) {
-          console.error("Failed to add mover", e);
-      } finally {
-          setLoadingMover(false);
-      }
+      // Optimistically add placeholder
+      setMoversData(prev => [...prev, { symbol, companyName: symbol, isLoaded: false }]);
+      
+      // Then fetch
+      await handleRefreshMover(symbol);
   };
 
   const handleRefreshMover = async (symbol: string) => {
+      // set local loading state if needed, or row specific loading in parent
       try {
           const quote = await fetchStockQuote(symbol);
           if (quote && quote.metaData) {

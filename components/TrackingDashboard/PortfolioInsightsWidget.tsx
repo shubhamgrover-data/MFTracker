@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Lightbulb, Loader2, X, TrendingUp, TrendingDown, Minus, ExternalLink, RefreshCw, Search, CheckSquare, Square, Plus, Check } from 'lucide-react';
 import { fetchPortfolioInsights } from '../../services/portfolioInsightsService';
+import { fetchNiftyTotalMarketSymbols } from '../../services/dataService';
 import { PortfolioInsightCategory } from '../../types/portfolioInsightsTypes';
 import { getTrackedItems, addTrackedItem, removeTrackedItem } from '../../services/trackingStorage';
 
@@ -25,6 +26,10 @@ const PortfolioInsightsWidget: React.FC<PortfolioInsightsWidgetProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [trackedSet, setTrackedSet] = useState<Set<string>>(new Set());
   const [showAllStocks, setShowAllStocks] = useState(false);
+
+  // State for filtering junk stocks
+  const [allowedSymbols, setAllowedSymbols] = useState<Set<string> | null>(null);
+  const [loadingFilter, setLoadingFilter] = useState(false);
 
   // Load tracked items and listen for updates
   useEffect(() => {
@@ -56,6 +61,19 @@ const PortfolioInsightsWidget: React.FC<PortfolioInsightsWidgetProps> = ({
       document.body.style.overflow = 'unset';
     };
   }, [isOpen, initialSymbolContext]);
+
+  // Load Nifty Total Market Index when "Show All" is checked
+  useEffect(() => {
+      if (showAllStocks && !allowedSymbols) {
+          const loadFilterList = async () => {
+              setLoadingFilter(true);
+              const set = await fetchNiftyTotalMarketSymbols();
+              setAllowedSymbols(set);
+              setLoadingFilter(false);
+          };
+          loadFilterList();
+      }
+  }, [showAllStocks, allowedSymbols]);
 
   const loadData = async () => {
       setIsLoading(true);
@@ -112,10 +130,21 @@ const PortfolioInsightsWidget: React.FC<PortfolioInsightsWidgetProps> = ({
               return item.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
                      item.insightText.toLowerCase().includes(searchQuery.toLowerCase());
           }
-          if (showAllStocks) return true;
+          
+          const isTracked = trackedSet.has(item.symbol);
+
+          if (showAllStocks) {
+             // If the filter list is loaded, filter against it. 
+             // Always show tracked items even if they aren't in the index list (rare but possible).
+             if (allowedSymbols) {
+                 return allowedSymbols.has(item.symbol) || isTracked;
+             }
+             // If still loading filter, don't show untracked items yet to prevent "flash" of junk
+             return isTracked; 
+          }
           
           // Default: Show items that are in user's tracking list
-          return trackedSet.has(item.symbol);
+          return isTracked;
       })
   })).filter(cat => cat.items.length > 0);
 
@@ -170,12 +199,16 @@ const PortfolioInsightsWidget: React.FC<PortfolioInsightsWidgetProps> = ({
                         
                         <div className="flex items-center gap-2">
                              <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer mr-2 select-none hover:text-indigo-600 font-medium bg-white px-2 py-1.5 rounded-lg border border-gray-200 hover:border-indigo-200 transition-all">
-                                <input 
-                                    type="checkbox" 
-                                    checked={showAllStocks} 
-                                    onChange={(e) => setShowAllStocks(e.target.checked)}
-                                    className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                />
+                                {loadingFilter ? (
+                                    <Loader2 size={12} className="animate-spin text-indigo-600" />
+                                ) : (
+                                    <input 
+                                        type="checkbox" 
+                                        checked={showAllStocks} 
+                                        onChange={(e) => setShowAllStocks(e.target.checked)}
+                                        className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                )}
                                 Show Stocks
                              </label>
 
@@ -283,7 +316,7 @@ const PortfolioInsightsWidget: React.FC<PortfolioInsightsWidgetProps> = ({
                                                                 
                                                                 <div className="flex items-center gap-2">
                                                                     <div className={`text-xs font-mono font-medium ${item.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                                                        {item.change >= 0 ? '+' : ''}{item.change}%
+                                                                        {item.change >= 0 ? '+' : ''}{item.change.toFixed(2)}%
                                                                     </div>
                                                                     {isAdded ? (
                                                                         <span className="text-green-600 text-[10px] font-medium flex items-center gap-1 bg-green-50 px-2 py-0.5 rounded border border-green-100">

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Lightbulb, Loader2, X, TrendingUp, TrendingDown, ExternalLink, RefreshCw, Search, CheckSquare, Square, Plus, Check } from 'lucide-react';
-import { fetchSectorInsights } from '../../services/dataService';
+import { fetchSectorInsights, fetchNiftyTotalMarketSymbols } from '../../services/dataService';
 import { SectorInsightItem } from '../../types/trackingTypes';
 import { getTrackedItems, addTrackedItem, removeTrackedItem } from '../../services/trackingStorage';
 
@@ -27,6 +27,10 @@ const SectorInsightsWidget: React.FC<SectorInsightsWidgetProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [trackedSet, setTrackedSet] = useState<Set<string>>(new Set());
   const [showAllStocks, setShowAllStocks] = useState(false);
+  
+  // State for filtering junk stocks
+  const [allowedSymbols, setAllowedSymbols] = useState<Set<string> | null>(null);
+  const [loadingFilter, setLoadingFilter] = useState(false);
 
   // Load tracked items and listen for updates
   useEffect(() => {
@@ -50,6 +54,19 @@ const SectorInsightsWidget: React.FC<SectorInsightsWidgetProps> = ({
       document.body.style.overflow = 'unset';
     };
   }, [isOpen]);
+
+  // Load Nifty Total Market Index when "Show All" is checked
+  useEffect(() => {
+      if (showAllStocks && !allowedSymbols) {
+          const loadFilterList = async () => {
+              setLoadingFilter(true);
+              const set = await fetchNiftyTotalMarketSymbols();
+              setAllowedSymbols(set);
+              setLoadingFilter(false);
+          };
+          loadFilterList();
+      }
+  }, [showAllStocks, allowedSymbols]);
 
   const loadData = async () => {
       setIsLoading(true);
@@ -100,14 +117,29 @@ const SectorInsightsWidget: React.FC<SectorInsightsWidgetProps> = ({
       }
   };
 
-  // Filter Logic: Initially show only tracked items. Search overrides this to show all matching.
+  // Filter Logic: 
+  // 1. Search overrides everything.
+  // 2. If "Show Stocks" is checked, show stocks from Nifty Total Market index + Tracked Stocks.
+  // 3. Otherwise show only Tracked Stocks.
   const filteredData = data.filter(item => {
       if (searchQuery.trim()) {
           return item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                  item.tooltip_stock_name.toLowerCase().includes(searchQuery.toLowerCase());
       }
-      if (showAllStocks) return true;
-      return trackedSet.has(item.name);
+      
+      const isTracked = trackedSet.has(item.name);
+      
+      if (showAllStocks) {
+          // If the filter list is loaded, filter against it. 
+          // Always show tracked items even if they aren't in the index list (rare but possible).
+          if (allowedSymbols) {
+              return allowedSymbols.has(item.name) || isTracked;
+          }
+          // If still loading filter, don't show untracked items yet to prevent "flash" of junk
+          return isTracked; 
+      }
+      
+      return isTracked;
   });
 
   // Count tracked stocks in this sector (for badge)
@@ -150,12 +182,16 @@ const SectorInsightsWidget: React.FC<SectorInsightsWidgetProps> = ({
                         
                         <div className="flex items-center gap-2">
                              <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer mr-2 select-none hover:text-indigo-600 font-medium bg-white px-2 py-1.5 rounded-lg border border-gray-200 hover:border-indigo-200 transition-all">
-                                <input 
-                                    type="checkbox" 
-                                    checked={showAllStocks} 
-                                    onChange={(e) => setShowAllStocks(e.target.checked)}
-                                    className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                />
+                                {loadingFilter ? (
+                                    <Loader2 size={12} className="animate-spin text-indigo-600" />
+                                ) : (
+                                    <input 
+                                        type="checkbox" 
+                                        checked={showAllStocks} 
+                                        onChange={(e) => setShowAllStocks(e.target.checked)}
+                                        className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                )}
                                 Show Stocks
                              </label>
 
@@ -215,7 +251,11 @@ const SectorInsightsWidget: React.FC<SectorInsightsWidgetProps> = ({
                                 {filteredData.map((item) => {
                                     const isTracked = trackedSet.has(item.name);
                                     const isAdded = addedSymbols.includes(item.name);
-                                    const isPositive = item.value >= 0;
+                                    
+                                    // Robust check for positivity using displayed value logic
+                                    const rawVal = parseFloat(item.disp_value?.replace(/[^0-9.-]/g, '') || '0');
+                                    // Use disp_value if valid, otherwise item.value
+                                    const isPositive = !isNaN(rawVal) ? rawVal >= 0 : item.value >= 0;
 
                                     return (
                                         <div 

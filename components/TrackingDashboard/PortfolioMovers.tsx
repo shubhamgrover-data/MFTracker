@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { TrendingUp, Search, Plus, Check, Loader2, ChevronLeft, ChevronRight, Briefcase, CheckSquare, Square, ExternalLink, Globe, Trash2, RefreshCw } from 'lucide-react';
+import { TrendingUp, Search, Plus, Check, Loader2, ChevronLeft, ChevronRight, Briefcase, CheckSquare, Square, ExternalLink, Globe, Trash2, RefreshCw, AlertCircle } from 'lucide-react';
 import { fetchStockQuote, searchStocksFromMasterList } from '../../services/dataService';
-import { getTrackedIndices, getTrackedItems, addTrackedItem, removeTrackedItem } from '../../services/trackingStorage';
+import { getTrackedIndices, getTrackedItems, addTrackedItem, removeTrackedItem, MAX_TRACKED_STOCKS } from '../../services/trackingStorage';
 import { MARKET_OVERVIEW_INDICES, HEADER_INDICES } from '../../types/constants';
 import PortfolioInsightsWidget from './PortfolioInsightsWidget';
 
@@ -63,7 +63,10 @@ const PortfolioUpdates: React.FC<PortfolioUpdatesProps> = ({ moversData, onAddMo
       if (trackedStockSet.has(symbol)) {
           removeTrackedItem(symbol, 'STOCK');
       } else {
-          addTrackedItem({ id: symbol, name: name, symbol, type: 'STOCK' });
+          const success = addTrackedItem({ id: symbol, name: name, symbol, type: 'STOCK' });
+          if (!success) {
+              // Toast is handled in storage logic now
+          }
       }
   };
 
@@ -87,7 +90,6 @@ const PortfolioUpdates: React.FC<PortfolioUpdatesProps> = ({ moversData, onAddMo
               setShowDropdown(true);
               try {
                   const results = await searchStocksFromMasterList(searchQuery);
-                  // Do not filter out already added stocks; we will indicate them visually
                   setSearchResults(results);
               } catch (error) {
                   console.error("Search failed", error);
@@ -106,7 +108,6 @@ const PortfolioUpdates: React.FC<PortfolioUpdatesProps> = ({ moversData, onAddMo
 
   const handleAdd = async (symbol: string) => {
       await onAddMover(symbol);
-      // Keep search active for multiple selections
   };
 
   // Pagination Logic
@@ -119,7 +120,7 @@ const PortfolioUpdates: React.FC<PortfolioUpdatesProps> = ({ moversData, onAddMo
       }
   }, [moversData.length, totalPages]);
 
-  // Combine all indices that are relevant to the dashboard (User Tracked + Default Market Overview + Headers)
+  // Combine all indices that are relevant to the dashboard
   const allDashboardIndices = useMemo(() => {
       const combined = new Set([
           ...trackedIndices,
@@ -129,7 +130,7 @@ const PortfolioUpdates: React.FC<PortfolioUpdatesProps> = ({ moversData, onAddMo
       return Array.from(combined);
   }, [trackedIndices]);
   
-  // Prepare list of symbols currently in the table to pass to the widget
+  // Prepare list of symbols currently in the table
   const currentTableSymbols = useMemo(() => moversData.map(m => m.symbol), [moversData]);
 
   return (
@@ -207,7 +208,7 @@ const PortfolioUpdates: React.FC<PortfolioUpdatesProps> = ({ moversData, onAddMo
        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
            {moversData.length === 0 ? (
                <div className="p-12 text-center text-gray-400 text-sm italic">
-                   No stocks added yet. Search or click from Index Insights to add.
+                   No stocks added yet. Your tracked stocks will appear here automatically.
                </div>
            ) : (
                <>
@@ -229,30 +230,28 @@ const PortfolioUpdates: React.FC<PortfolioUpdatesProps> = ({ moversData, onAddMo
                            </thead>
                            <tbody className="bg-white divide-y divide-gray-50">
                                {paginatedData.map((stock, idx) => {
+                                   const isLoaded = stock.isLoaded !== false; // Default true if undefined (legacy)
                                    const isPos = stock.change >= 0;
                                    const rangePos = ((stock.lastPrice - stock.yearLow) / (stock.yearHigh - stock.yearLow)) * 100;
                                    const isTracked = trackedStockSet.has(stock.symbol);
                                    const isRowRefreshing = refreshingRows.has(stock.symbol);
                                    
-                                   // Identify matching indices (Case Insensitive Check)
                                    const matchedIndices = stock.indexList?.filter((idxName: string) => 
                                        allDashboardIndices.some(dashboardIdx => dashboardIdx.toLowerCase() === idxName.toLowerCase())
                                    ) || [];
 
                                    const sectorTooltip = [stock.macro, stock.sector, stock.basicIndustry].filter(Boolean).join(" > ");
                                    
-                                   // Generate NSE Link
                                    const companySlug = stock.companyName ? stock.companyName.replace(/\s+/g, '-') : '';
                                    const nseUrl = `https://www.nseindia.com/get-quote/equity/${encodeURIComponent(stock.symbol)}/${encodeURIComponent(companySlug)}`;
 
-                                   // Logic for Sector Index Display (Priority: pdSectorInd -> indexList[0])
                                    let displaySectorIndex = stock.pdSectorInd;
                                    if (!displaySectorIndex || displaySectorIndex === '-') {
                                        displaySectorIndex = stock.indexList && stock.indexList.length > 0 ? stock.indexList[0] : null;
                                    }
 
                                    return (
-                                       <tr key={`${stock.symbol}-${idx}`} className="hover:bg-gray-50 transition-colors">
+                                       <tr key={`${stock.symbol}-${idx}`} className={`hover:bg-gray-50 transition-colors ${!isLoaded ? 'bg-gray-50/50' : ''}`}>
                                            {/* Tracking Checkbox */}
                                            <td className="px-4 py-3 text-center">
                                                 <button 
@@ -270,11 +269,10 @@ const PortfolioUpdates: React.FC<PortfolioUpdatesProps> = ({ moversData, onAddMo
                                                     onClick={() => onViewDetails && onViewDetails(stock.symbol, stock.companyName)}
                                                >
                                                    <div className="flex items-center gap-1.5">
-                                                       <span className="font-bold text-indigo-700 group-hover:underline">
+                                                       <span className={`font-bold group-hover:underline ${isLoaded ? 'text-indigo-700' : 'text-gray-600'}`}>
                                                            {stock.symbol}
                                                        </span>
                                                        
-                                                       {/* Widget Icon wrapped to prevent click propagation if needed, handled inside component though */}
                                                        <div onClick={(e) => e.stopPropagation()}>
                                                            <PortfolioInsightsWidget 
                                                                 onAddToMover={async (s) => { if (!moversData.some(m => m.symbol === s)) await onAddMover(s) }}
@@ -300,68 +298,82 @@ const PortfolioUpdates: React.FC<PortfolioUpdatesProps> = ({ moversData, onAddMo
                                                    </div>
                                                </div>
                                            </td>
+
+                                           {/* Data Columns - Handle Not Loaded State */}
                                            <td className="px-4 py-3 text-right">
-                                               <div className={`font-mono font-medium text-gray-800 ${isRowRefreshing ? 'opacity-50' : ''}`}>
-                                                   {stock.lastPrice?.toLocaleString() ?? '-'} 
-                                                   <span className={`ml-1 text-[10px] ${isPos ? 'text-green-600' : 'text-red-600'}`}>
-                                                       ({isPos ? '+' : ''}{stock.pChange}%)
-                                                   </span>
-                                               </div>
+                                               {isLoaded ? (
+                                                   <div className={`font-mono font-medium text-gray-800 ${isRowRefreshing ? 'opacity-50' : ''}`}>
+                                                       {stock.lastPrice?.toLocaleString() ?? '-'} 
+                                                       <span className={`ml-1 text-[10px] ${isPos ? 'text-green-600' : 'text-red-600'}`}>
+                                                           ({isPos ? '+' : ''}{stock.pChange}%)
+                                                       </span>
+                                                   </div>
+                                               ) : (
+                                                   <span className="text-[10px] text-gray-400 italic">Click refresh</span>
+                                               )}
                                            </td>
                                            <td className="px-4 py-3 text-center">
-                                               <div className="flex flex-col items-center">
-                                                   {stock.pdSymbolPe && stock.pdSymbolPe !== '-' ? (
-                                                       <span className="font-medium text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">
-                                                           {stock.pdSymbolPe}
+                                               {isLoaded ? (
+                                                   <div className="flex flex-col items-center">
+                                                       {stock.pdSymbolPe && stock.pdSymbolPe !== '-' ? (
+                                                           <span className="font-medium text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">
+                                                               {stock.pdSymbolPe}
+                                                           </span>
+                                                       ) : <span className="text-gray-300">-</span>}
+                                                       <span className="text-[9px] text-gray-400 mt-0.5">
+                                                           Sec: {stock.pdSectorPe || '-'}
                                                        </span>
-                                                   ) : <span className="text-gray-300">-</span>}
-                                                   <span className="text-[9px] text-gray-400 mt-0.5">
-                                                       Sec: {stock.pdSectorPe || '-'}
-                                                   </span>
-                                               </div>
+                                                   </div>
+                                               ) : <span className="text-gray-300">-</span>}
                                            </td>
                                            <td className="px-4 py-3 text-center font-mono text-gray-600 text-xs">
-                                               {stock.delivery ? `${stock.delivery}%` : '-'}
+                                               {isLoaded ? (stock.delivery ? `${stock.delivery}%` : '-') : '-'}
                                            </td>
                                            <td className="px-4 py-3 text-center">
-                                               {displaySectorIndex && displaySectorIndex !== '-' ? (
+                                               {isLoaded && displaySectorIndex && displaySectorIndex !== '-' ? (
                                                    <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap">
                                                        {displaySectorIndex}
                                                    </span>
                                                ) : <span className="text-gray-300">-</span>}
                                            </td>
                                            <td className="px-4 py-3">
-                                               <span 
-                                                    className="text-gray-600 truncate max-w-[120px] block cursor-help decoration-dotted underline underline-offset-2" 
-                                                    title={sectorTooltip}
-                                               >
-                                                   {stock.basicIndustry || stock.sector || '-'}
-                                               </span>
+                                               {isLoaded ? (
+                                                   <span 
+                                                        className="text-gray-600 truncate max-w-[120px] block cursor-help decoration-dotted underline underline-offset-2" 
+                                                        title={sectorTooltip}
+                                                   >
+                                                       {stock.basicIndustry || stock.sector || '-'}
+                                                   </span>
+                                               ) : <span className="text-gray-300">-</span>}
                                            </td>
                                            <td className="px-4 py-3 text-center">
-                                               <div className="flex flex-col gap-1 w-full max-w-[100px] mx-auto">
-                                                   <div className="flex justify-between text-[9px] text-gray-400">
-                                                       <span>{stock.yearLow?.toLocaleString() ?? '-'}</span>
-                                                       <span>{stock.yearHigh?.toLocaleString() ?? '-'}</span>
+                                               {isLoaded ? (
+                                                   <div className="flex flex-col gap-1 w-full max-w-[100px] mx-auto">
+                                                       <div className="flex justify-between text-[9px] text-gray-400">
+                                                           <span>{stock.yearLow?.toLocaleString() ?? '-'}</span>
+                                                           <span>{stock.yearHigh?.toLocaleString() ?? '-'}</span>
+                                                       </div>
+                                                       <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden relative">
+                                                           <div 
+                                                               className="absolute h-full w-1.5 bg-indigo-600 rounded-full top-0 ml-[-3px]" 
+                                                               style={{ left: `${Math.min(Math.max(rangePos || 0, 0), 100)}%` }}
+                                                           ></div>
+                                                       </div>
                                                    </div>
-                                                   <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden relative">
-                                                       <div 
-                                                           className="absolute h-full w-1.5 bg-indigo-600 rounded-full top-0 ml-[-3px]" 
-                                                           style={{ left: `${Math.min(Math.max(rangePos || 0, 0), 100)}%` }}
-                                                       ></div>
-                                                   </div>
-                                               </div>
+                                               ) : <span className="text-gray-300">-</span>}
                                            </td>
                                            <td className="px-4 py-3">
-                                               <div className="flex flex-wrap gap-1 max-w-[200px]">
-                                                   {matchedIndices.length > 0 ? matchedIndices.map((idxName: string) => (
-                                                       <span key={idxName} className="px-1.5 py-0.5 bg-orange-50 text-orange-700 border border-orange-100 rounded text-[9px]">
-                                                           {idxName}
-                                                       </span>
-                                                   )) : (
-                                                       <span className="text-gray-300 text-[10px] italic">None</span>
-                                                   )}
-                                               </div>
+                                               {isLoaded ? (
+                                                   <div className="flex flex-wrap gap-1 max-w-[200px]">
+                                                       {matchedIndices.length > 0 ? matchedIndices.map((idxName: string) => (
+                                                           <span key={idxName} className="px-1.5 py-0.5 bg-orange-50 text-orange-700 border border-orange-100 rounded text-[9px]">
+                                                               {idxName}
+                                                           </span>
+                                                       )) : (
+                                                           <span className="text-gray-300 text-[10px] italic">None</span>
+                                                       )}
+                                                   </div>
+                                               ) : <span className="text-gray-300">-</span>}
                                            </td>
                                            {/* Actions Column */}
                                            <td className="px-4 py-3 text-right">
@@ -369,8 +381,12 @@ const PortfolioUpdates: React.FC<PortfolioUpdatesProps> = ({ moversData, onAddMo
                                                    <button 
                                                        onClick={() => handleRowRefresh(stock.symbol)}
                                                        disabled={isRowRefreshing}
-                                                       className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                                                       title="Refresh Stock Data"
+                                                       className={`p-1.5 rounded transition-colors ${
+                                                           !isLoaded 
+                                                           ? 'text-indigo-600 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100' 
+                                                           : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'
+                                                       }`}
+                                                       title={isLoaded ? "Refresh Stock Data" : "Load Details"}
                                                    >
                                                        <RefreshCw size={14} className={isRowRefreshing ? 'animate-spin text-indigo-600' : ''} />
                                                    </button>

@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { RefreshCw, Loader2, Sparkles, MessageSquare, Plus, Check, EyeOff } from 'lucide-react';
+import { RefreshCw, Loader2, Sparkles, MessageSquare, Plus, Check, EyeOff, ChevronDown, ChevronUp } from 'lucide-react';
 import { useInsightExtraction } from '../hooks/useInsightExtraction';
 import { addTrackedItem, removeTrackedItem, isTracked, isIgnored, addIgnoredItem, removeIgnoredItem } from '../services/trackingStorage';
 import InsightChatbot from './TrackingDashboard/InsightChatbot';
@@ -27,6 +27,7 @@ const StockDeepDive: React.FC<StockDeepDiveProps> = ({ symbol, stockName }) => {
   const [chatContext, setChatContext] = useState<any[] | null>(null);
   const [isTrackedStock, setIsTrackedStock] = useState(false);
   const [isIgnoredStock, setIsIgnoredStock] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
   
   // Auto-fetch on mount if no data
   useEffect(() => {
@@ -41,7 +42,8 @@ const StockDeepDive: React.FC<StockDeepDiveProps> = ({ symbol, stockName }) => {
     setIsIgnoredStock(isIgnored(symbol));
   }, [symbol]);
 
-  const toggleTracking = () => {
+  const toggleTracking = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (isTrackedStock) {
         removeTrackedItem(symbol, 'STOCK');
         setIsTrackedStock(false);
@@ -56,7 +58,8 @@ const StockDeepDive: React.FC<StockDeepDiveProps> = ({ symbol, stockName }) => {
     }
   };
 
-  const toggleIgnore = () => {
+  const toggleIgnore = (e: React.MouseEvent) => {
+      e.stopPropagation();
       if (isIgnoredStock) {
           removeIgnoredItem(symbol);
           setIsIgnoredStock(false);
@@ -91,112 +94,130 @@ const StockDeepDive: React.FC<StockDeepDiveProps> = ({ symbol, stockName }) => {
   return (
     <div className="space-y-4 animate-fade-in">
        {/* Header */}
-       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+       <div 
+          className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex flex-col sm:flex-row items-center justify-between gap-4 cursor-pointer hover:bg-gray-50 transition-colors"
+          onClick={() => setIsExpanded(!isExpanded)}
+       >
            <div className="flex items-center gap-3">
                <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
                    <Sparkles size={20} />
                </div>
                <div>
-                   <h3 className="font-bold text-gray-900">Deep Dive Analysis</h3>
+                   <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                       Deep Dive Analysis
+                       {!isExpanded && <span className="text-xs text-gray-400 font-normal ml-2">({stockResults.length} indicators loaded)</span>}
+                   </h3>
                    <p className="text-xs text-gray-500">Comprehensive indicators for {stockName}</p>
                </div>
            </div>
            
            <div className="flex items-center gap-3 w-full sm:w-auto">
-               <button
-                   onClick={toggleIgnore}
-                   className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
-                       isIgnoredStock 
-                       ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100' 
-                       : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50 hover:text-red-600'
-                   }`}
-                   title={isIgnoredStock ? "Remove from Ignore List" : "Ignore Stock (Hide from Intelligent Tracking)"}
-               >
-                   <EyeOff size={16} />
-                   <span>{isIgnoredStock ? 'Ignored' : 'Ignore'}</span>
-               </button>
+               {isExpanded && (
+                   <>
+                       <button
+                           onClick={toggleIgnore}
+                           className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                               isIgnoredStock 
+                               ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100' 
+                               : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50 hover:text-red-600'
+                           }`}
+                           title={isIgnoredStock ? "Remove from Ignore List" : "Ignore Stock (Hide from Intelligent Tracking)"}
+                       >
+                           <EyeOff size={16} />
+                           <span className="hidden sm:inline">{isIgnoredStock ? 'Ignored' : 'Ignore'}</span>
+                       </button>
 
-               <button
-                   onClick={toggleTracking}
-                   className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
-                       isTrackedStock 
-                       ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' 
-                       : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-                   }`}
-                   title={isTrackedStock ? "Remove from Watchlist" : "Add to Watchlist"}
-               >
-                   {isTrackedStock ? <Check size={16} /> : <Plus size={16} />}
-                   <span>{isTrackedStock ? 'Tracked' : 'Track'}</span>
-               </button>
+                       <button
+                           onClick={toggleTracking}
+                           className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                               isTrackedStock 
+                               ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' 
+                               : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                           }`}
+                           title={isTrackedStock ? "Remove from Watchlist" : "Add to Watchlist"}
+                       >
+                           {isTrackedStock ? <Check size={16} /> : <Plus size={16} />}
+                           <span className="hidden sm:inline">{isTrackedStock ? 'Tracked' : 'Track'}</span>
+                       </button>
 
-               {stockResults.length > 0 && (
-                   <button 
-                       onClick={() => setChatContext(stockResults.map(i => ({ symbol, indicator: i.indicatorName, data: i.data })))}
-                       className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium transition-colors"
-                   >
-                       <MessageSquare size={16} />
-                       Ask AI
-                   </button>
+                       {stockResults.length > 0 && (
+                           <button 
+                               onClick={(e) => { e.stopPropagation(); setChatContext(stockResults.map(i => ({ symbol, indicator: i.indicatorName, data: i.data }))); }}
+                               className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium transition-colors"
+                           >
+                               <MessageSquare size={16} />
+                               Ask AI
+                           </button>
+                       )}
+                       
+                       <button 
+                           onClick={(e) => { e.stopPropagation(); startExtraction([symbol],1,true); }} //Changed intentionally to do force refresh
+                           disabled={isLoading}
+                           className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium transition-colors ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
+                           title='Force refresh'
+                       >
+                           {isLoading ? (
+                               <>
+                                 <Loader2 size={16} className="animate-spin" />
+                                 <span className="hidden sm:inline">{progress.total > 0 ? `${progress.completed}/${progress.total}` : 'Loading...'}</span>
+                               </>
+                           ) : (
+                               <>
+                                 <RefreshCw size={16} />
+                                
+                               </>
+                           )}
+                       </button>
+                   </>
                )}
                
-               <button 
-                   onClick={() => startExtraction([symbol],1,true)} //Changed intentionally to do force refresh
-                   disabled={isLoading}
-                   className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium transition-colors ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
-                   title='Force refresh'
-               >
-                   {isLoading ? (
-                       <>
-                         <Loader2 size={16} className="animate-spin" />
-                         <span>{progress.total > 0 ? `${progress.completed}/${progress.total}` : 'Loading...'}</span>
-                       </>
-                   ) : (
-                       <>
-                         <RefreshCw size={16} />
-                        
-                       </>
-                   )}
-               </button>
+               <div className="p-2 text-gray-400">
+                   {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+               </div>
            </div>
        </div>
 
        {/* Grid Content */}
-       {stockResults.length > 0 ? (
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-               {stockResults.map((item, idx) => (
-                   <BaseInsightCard
-                        key={`${item.indicatorName}-${idx}`}
-                        symbol={symbol}
-                        indicatorName={item.indicatorName}
-                        url={item.url}
-                        isProcessing={false} // Hook handles data readiness
-                        success={item.success}
-                        isSelected={false}
-                        onToggleSelect={() => {}} // No selection in this view
-                        // onStockClick is undefined, so it renders as text
-                   >
-                       {renderSpecificCard(item.indicatorName, item.data)}
-                   </BaseInsightCard>
-               ))}
-           </div>
-       ) : (
-           isLoading ? (
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-pulse">
-                   {[...Array(3)].map((_, i) => (
-                       <div key={i} className="h-48 bg-white rounded-xl border border-gray-100 p-4">
-                           <div className="h-4 bg-gray-100 rounded w-1/3 mb-4"></div>
-                           <div className="space-y-2">
-                               <div className="h-3 bg-gray-100 rounded w-full"></div>
-                               <div className="h-3 bg-gray-100 rounded w-5/6"></div>
-                           </div>
+       {isExpanded && (
+           <>
+               {stockResults.length > 0 ? (
+                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                       {stockResults.map((item, idx) => (
+                           <BaseInsightCard
+                                key={`${item.indicatorName}-${idx}`}
+                                symbol={symbol}
+                                indicatorName={item.indicatorName}
+                                url={item.url}
+                                isProcessing={false} // Hook handles data readiness
+                                success={item.success}
+                                isSelected={false}
+                                onToggleSelect={() => {}} // No selection in this view
+                                // onStockClick is undefined, so it renders as text
+                           >
+                               {renderSpecificCard(item.indicatorName, item.data)}
+                           </BaseInsightCard>
+                       ))}
+                   </div>
+               ) : (
+                   isLoading ? (
+                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-pulse">
+                           {[...Array(3)].map((_, i) => (
+                               <div key={i} className="h-48 bg-white rounded-xl border border-gray-100 p-4">
+                                   <div className="h-4 bg-gray-100 rounded w-1/3 mb-4"></div>
+                                   <div className="space-y-2">
+                                       <div className="h-3 bg-gray-100 rounded w-full"></div>
+                                       <div className="h-3 bg-gray-100 rounded w-5/6"></div>
+                                   </div>
+                               </div>
+                           ))}
                        </div>
-                   ))}
-               </div>
-           ) : (
-               <div className="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
-                   <p className="text-gray-500">Click "Refresh Analysis" to load detailed indicators.</p>
-               </div>
-           )
+                   ) : (
+                       <div className="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
+                           <p className="text-gray-500">Click "Refresh Analysis" to load detailed indicators.</p>
+                       </div>
+                   )
+               )}
+           </>
        )}
 
        {/* Chatbot Overlay */}

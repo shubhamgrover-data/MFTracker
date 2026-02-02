@@ -1,7 +1,9 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, TrendingUp, TrendingDown, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Upload, Loader2, ExternalLink, History, ChevronLeft, ChevronRight, PieChart as PieIcon, Info, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { Search, TrendingUp, TrendingDown, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Upload, Loader2, ExternalLink, History, ChevronLeft, ChevronRight, PieChart as PieIcon, Info, ChevronDown, ChevronUp, RefreshCw, CheckSquare, Square, Filter, Plus, Check } from 'lucide-react';
 import { FundSnapshot, FundSearchResult, FundPortfolioHolding, FundMeta, SectorDistribution, HoldingHistoryItem } from '../types';
 import { parseExcelFile, fetchFundPortfolio, fetchFundHoldingHistory } from '../services/dataService';
+import { getTrackedItems, addTrackedItem, removeTrackedItem, isTracked } from '../services/trackingStorage';
 import FundSearch from './FundSearch';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
@@ -29,6 +31,11 @@ const FundView: React.FC<FundViewProps> = ({ funds, onFundDataAdded, onSelectSto
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
+  // Tracking State
+  const [showTrackedOnly, setShowTrackedOnly] = useState(false);
+  const [trackedSet, setTrackedSet] = useState<Set<string>>(new Set());
+  const [isFundTracked, setIsFundTracked] = useState(false);
+
   // History Data State
   const [historyCache, setHistoryCache] = useState<Record<string | number, { date: string, change: string }[]>>({});
   const [monthHeaders, setMonthHeaders] = useState<string[]>([]);
@@ -51,6 +58,32 @@ const FundView: React.FC<FundViewProps> = ({ funds, onFundDataAdded, onSelectSto
       setSelectedFund(initialSelectedFund);
     }
   }, [initialSelectedFund]);
+
+  // Load tracked items
+  useEffect(() => {
+    const updateTracked = () => {
+        const items = getTrackedItems().filter(i => i.type === 'STOCK');
+        setTrackedSet(new Set(items.map(i => i.id)));
+    };
+    updateTracked();
+    window.addEventListener('fundflow_tracking_update', updateTracked);
+    return () => window.removeEventListener('fundflow_tracking_update', updateTracked);
+  }, []);
+
+  // Check if current fund is tracked
+  useEffect(() => {
+      const checkFundTracking = () => {
+          if (!selectedFund) {
+              setIsFundTracked(false);
+              return;
+          }
+          const id = selectedFund.pk ? String(selectedFund.pk) : selectedFund.name;
+          setIsFundTracked(isTracked(id, 'MF'));
+      };
+      checkFundTracking();
+      window.addEventListener('fundflow_tracking_update', checkFundTracking);
+      return () => window.removeEventListener('fundflow_tracking_update', checkFundTracking);
+  }, [selectedFund]);
 
   const loadData = async () => {
       if (!selectedFund || !selectedFund.url) {
@@ -123,10 +156,39 @@ const FundView: React.FC<FundViewProps> = ({ funds, onFundDataAdded, onSelectSto
     }
   };
 
+  const handleTrackToggle = (e: React.MouseEvent, symbol: string, name: string) => {
+      e.stopPropagation();
+      if (trackedSet.has(symbol)) {
+          removeTrackedItem(symbol, 'STOCK');
+      } else {
+          addTrackedItem({ id: symbol, name, symbol, type: 'STOCK' });
+      }
+  };
+
+  const handleToggleFundTrack = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!selectedFund) return;
+      
+      const id = selectedFund.pk ? String(selectedFund.pk) : selectedFund.name;
+      
+      if (isFundTracked) {
+          removeTrackedItem(id, 'MF');
+      } else {
+          addTrackedItem({
+              id,
+              name: selectedFund.name,
+              type: 'MF',
+              url: selectedFund.url
+          });
+      }
+  };
+
   const sortedData = useMemo(() => {
       if (!portfolioData) return [];
       
       let data = [...portfolioData];
+      
+      // Filter by Search
       if (searchTerm) {
           const lower = searchTerm.toLowerCase();
           data = data.filter(item => 
@@ -134,6 +196,11 @@ const FundView: React.FC<FundViewProps> = ({ funds, onFundDataAdded, onSelectSto
               item.stockSymbol.toLowerCase().includes(lower) ||
               item.sector.toLowerCase().includes(lower)
           );
+      }
+
+      // Filter by Tracked Only
+      if (showTrackedOnly) {
+          data = data.filter(item => trackedSet.has(item.stockSymbol));
       }
 
       return data.sort((a, b) => {
@@ -172,7 +239,7 @@ const FundView: React.FC<FundViewProps> = ({ funds, onFundDataAdded, onSelectSto
           if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
           return 0;
       });
-  }, [portfolioData, searchTerm, sortField, sortDirection, historyCache]);
+  }, [portfolioData, searchTerm, sortField, sortDirection, historyCache, showTrackedOnly, trackedSet]);
 
   // Pagination Logic
   const totalPages = Math.ceil(sortedData.length / ITEMS_PER_PAGE);
@@ -185,7 +252,7 @@ const FundView: React.FC<FundViewProps> = ({ funds, onFundDataAdded, onSelectSto
   useEffect(() => {
     setCurrentPage(1);
     // Note: We don't clear historyCache here to preserve loaded data if user navigates back
-  }, [searchTerm, sortField, sortDirection, selectedFund]);
+  }, [searchTerm, sortField, sortDirection, selectedFund, showTrackedOnly]);
 
   // --- Fetch History for Visible Rows ---
   useEffect(() => {
@@ -270,13 +337,6 @@ const FundView: React.FC<FundViewProps> = ({ funds, onFundDataAdded, onSelectSto
       return 'bg-yellow-400';
   };
 
-  const getValueColor = (val: number) => {
-    if (val > 0) return 'text-green-600';
-    if (val < 0) return 'text-red-600';
-    return 'text-gray-400';
-  };
-
-  // Helper to ensure URL is absolute for the user link
   const getDisplayUrl = (url: string) => {
       if (!url) return '';
       if (url.startsWith('http')) return url;
@@ -284,7 +344,6 @@ const FundView: React.FC<FundViewProps> = ({ funds, onFundDataAdded, onSelectSto
   };
 
   const renderLegendText = (value: string, entry: any) => {
-    const { color } = entry;
     return (
         <span className="text-gray-600 font-medium ml-1 text-xs">
             {value} <span className="text-gray-400 font-normal">({entry.payload.value}%)</span>
@@ -292,7 +351,6 @@ const FundView: React.FC<FundViewProps> = ({ funds, onFundDataAdded, onSelectSto
     );
   };
 
-  // Helper to get change color for history
   const getHistoryChangeColor = (val: string | undefined) => {
       if (!val) return 'text-gray-300';
       if (val.includes('-')) return 'text-red-500';
@@ -305,25 +363,6 @@ const FundView: React.FC<FundViewProps> = ({ funds, onFundDataAdded, onSelectSto
       <div className="flex items-center justify-between pb-4 border-b border-gray-100">
         <div>
            <h2 className="text-2xl font-bold text-gray-900">Fund Monitor</h2>
-        </div>
-        
-        {/* Upload Excel Button - Hidden until implemented */}
-        <div className="flex items-center gap-4" style={{ display: 'none' }}>
-          <button 
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition-colors text-sm font-medium"
-          >
-            {isUploading ? <Loader2 size={16} className="animate-spin"/> : <Upload size={16} />}
-            Upload Excel
-          </button>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            className="hidden" 
-            accept=".xlsx,.xls,.csv"
-            onChange={handleFileChange}
-          />
         </div>
       </div>
 
@@ -443,25 +482,52 @@ const FundView: React.FC<FundViewProps> = ({ funds, onFundDataAdded, onSelectSto
 
           {/* Holdings Table Section */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
-            <div className="p-6 border-b border-gray-200 bg-gray-50 flex flex-col md:flex-row gap-4 items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-gray-900">Portfolio Holdings</h3>
-                <p className="text-sm text-gray-500">
-                    {loading ? 'Fetching...' : portfolioData ? `${sortedData.length} Stocks Found` : 'No data'}
-                </p>
+            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-gray-900">Portfolio Holdings</h3>
+                    <span className="text-sm text-gray-500 font-medium">
+                        ({loading ? '...' : portfolioData ? sortedData.length : 0})
+                    </span>
+                </div>
+                
+                <button
+                    onClick={handleToggleFundTrack}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+                        isFundTracked 
+                        ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' 
+                        : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'
+                    }`}
+                >
+                    {isFundTracked ? <Check size={14} /> : <Plus size={14} />}
+                    {isFundTracked ? 'Tracked' : 'Track Fund'}
+                </button>
               </div>
 
-              <div className="relative w-full md:w-64">
-                <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                  <Search className="w-4 h-4 text-gray-500" />
-                </div>
-                <input 
-                  type="text" 
-                  className="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 p-2.5" 
-                  placeholder="Search portfolio..." 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+              <div className="flex items-center gap-4">
+                  {/* Tracked Stocks Filter */}
+                  <label className="flex items-center gap-2 text-xs font-medium text-gray-700 cursor-pointer select-none bg-white px-2 py-1.5 rounded-md border border-gray-200 hover:border-indigo-300 transition-colors shadow-sm">
+                      <input 
+                          type="checkbox" 
+                          checked={showTrackedOnly} 
+                          onChange={(e) => setShowTrackedOnly(e.target.checked)}
+                          className="w-3.5 h-3.5 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300"
+                      />
+                      Tracked Stocks
+                  </label>
+
+                  <div className="relative w-48">
+                    <div className="absolute inset-y-0 left-0 flex items-center pl-2.5 pointer-events-none">
+                      <Search className="w-3.5 h-3.5 text-gray-400" />
+                    </div>
+                    <input 
+                      type="text" 
+                      className="bg-white border border-gray-200 text-gray-900 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-8 p-1.5 shadow-sm" 
+                      placeholder="Search holdings..." 
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
               </div>
             </div>
 
@@ -477,7 +543,7 @@ const FundView: React.FC<FundViewProps> = ({ funds, onFundDataAdded, onSelectSto
                       <tr>
                         <th 
                            scope="col" 
-                           className="px-4 py-3 sticky left-0 bg-gray-50 z-10 border-r border-gray-200 w-[20%] min-w-[200px] cursor-pointer hover:bg-gray-100 group"
+                           className="px-4 py-3 sticky left-0 bg-gray-50 z-10 border-r border-gray-200 w-[20%] min-w-[240px] cursor-pointer hover:bg-gray-100 group"
                            onClick={() => handleSort('stockName')}
                         >
                             <div className="flex items-center justify-between">
@@ -534,53 +600,64 @@ const FundView: React.FC<FundViewProps> = ({ funds, onFundDataAdded, onSelectSto
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {paginatedData.map((row, idx) => {
+                      {paginatedData.length > 0 ? paginatedData.map((row, idx) => {
                           // Get cached history
                           const history = row.stockPk ? historyCache[row.stockPk] : undefined;
                           const isLoadingHistory = row.stockPk ? loadingHistoryMap[row.stockPk] : false;
+                          const isTracked = trackedSet.has(row.stockSymbol);
 
                           return (
                           <tr key={idx} className="bg-white hover:bg-gray-50 transition-colors group">
                             <td className="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white group-hover:bg-gray-50 border-r border-gray-200 z-10 align-top">
-                              <div className="flex flex-col gap-1">
-                                  <div className="flex items-start gap-2">
-                                    <div className="mt-0.5 text-gray-300 flex-shrink-0 w-4 hover:text-indigo-600 transition-colors">
-                                        {row.historyUrl && 
-                                         (<a href={row.historyUrl} 
-                                         target="_blank" 
-                                         rel="noreferrer" 
-                                         className="flex"
-                                         title="View Historical Changes"
-                                         onClick={(e) => e.stopPropagation()}>
-                                          <History size={14} />
-                                          </a>
-                                          
-                                         )
-                                        }
-                                    </div>
-                                    <button 
-                                        onClick={() => onSelectStock(row.stockSymbol, row.stockName)}
-                                        className="text-indigo-600 hover:text-indigo-800 hover:underline text-left text-sm w-full group/link flex items-center gap-2"
-                                    >
-                                        <span className="font-semibold break-words line-clamp-2 leading-tight">{row.stockName}</span>
-                                        {row.stockUrl && (
-                                            <a 
-                                                href={row.stockUrl} 
-                                                target="_blank" 
-                                                rel="noreferrer" 
-                                                className="text-gray-400 hover:text-indigo-500 opacity-0 group-hover/link:opacity-100 transition-opacity"
-                                                title="View External"
-                                                onClick={(e) => e.stopPropagation()}
-                                            >
-                                                <ExternalLink size={14} />
-                                            </a>
-                                        )}
-                                    </button>
-                                  </div>
-                                  <div className="flex items-center gap-1 pl-6 mt-1">
-                                      <div className={`w-1.5 h-1.5 rounded-full ${getDotColor(row.dColor)}`} title={`Durability: ${row.d}`}></div>
-                                      <div className={`w-1.5 h-1.5 rounded-full ${getDotColor(row.vColor)}`} title={`Valuation: ${row.v}`}></div>
-                                      <div className={`w-1.5 h-1.5 rounded-full ${getDotColor(row.mColor)}`} title={`Momentum: ${row.m}`}></div>
+                              <div className="flex items-start gap-3">
+                                  {/* Tracking Checkbox */}
+                                  <button 
+                                      onClick={(e) => handleTrackToggle(e, row.stockSymbol, row.stockName)}
+                                      className={`mt-0.5 transition-colors ${isTracked ? 'text-indigo-600' : 'text-gray-300 hover:text-gray-500'}`}
+                                      title={isTracked ? "Remove from Watchlist" : "Add to Watchlist"}
+                                  >
+                                      {isTracked ? <CheckSquare size={16} /> : <Square size={16} />}
+                                  </button>
+
+                                  <div className="flex flex-col gap-1 min-w-0 flex-1">
+                                      <div className="flex items-start gap-2">
+                                        <div className="mt-0.5 text-gray-300 flex-shrink-0 w-4 hover:text-indigo-600 transition-colors">
+                                            {row.historyUrl && 
+                                             (<a href={row.historyUrl} 
+                                             target="_blank" 
+                                             rel="noreferrer" 
+                                             className="flex"
+                                             title="View Historical Changes"
+                                             onClick={(e) => e.stopPropagation()}>
+                                              <History size={14} />
+                                              </a>
+                                             )
+                                            }
+                                        </div>
+                                        <button 
+                                            onClick={() => onSelectStock(row.stockSymbol, row.stockName)}
+                                            className="text-indigo-600 hover:text-indigo-800 hover:underline text-left text-sm w-full group/link flex items-center gap-2"
+                                        >
+                                            <span className="font-semibold break-words line-clamp-2 leading-tight">{row.stockName}</span>
+                                            {row.stockUrl && (
+                                                <a 
+                                                    href={row.stockUrl} 
+                                                    target="_blank" 
+                                                    rel="noreferrer" 
+                                                    className="text-gray-400 hover:text-indigo-500 opacity-0 group-hover/link:opacity-100 transition-opacity"
+                                                    title="View External"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    <ExternalLink size={14} />
+                                                </a>
+                                            )}
+                                        </button>
+                                      </div>
+                                      <div className="flex items-center gap-1 pl-6 mt-1">
+                                          <div className={`w-1.5 h-1.5 rounded-full ${getDotColor(row.dColor)}`} title={`Durability: ${row.d}`}></div>
+                                          <div className={`w-1.5 h-1.5 rounded-full ${getDotColor(row.vColor)}`} title={`Valuation: ${row.v}`}></div>
+                                          <div className={`w-1.5 h-1.5 rounded-full ${getDotColor(row.mColor)}`} title={`Momentum: ${row.m}`}></div>
+                                      </div>
                                   </div>
                               </div>
                             </td>
@@ -613,7 +690,13 @@ const FundView: React.FC<FundViewProps> = ({ funds, onFundDataAdded, onSelectSto
                             })}
                           </tr>
                         );
-                      })}
+                      }) : (
+                          <tr>
+                              <td colSpan={10} className="px-6 py-12 text-center text-gray-400">
+                                  {showTrackedOnly ? "No tracked stocks found in this portfolio." : "No holdings found."}
+                              </td>
+                          </tr>
+                      )}
                     </tbody>
                   </table>
               ) : (

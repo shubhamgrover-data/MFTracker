@@ -126,6 +126,12 @@ const DEFAULT_ITEMS: TrackedItem[] = [
   { id: 'BEL', name: 'Bharat Electronics Ltd', symbol: 'BEL', type: 'STOCK' },
   { id: 'TRENT', name: 'Trent Ltd', symbol: 'TRENT', type: 'STOCK' },
   { id: 'MAZDOCK', name: 'Mazagon Dock Shipbuilders', symbol: 'MAZDOCK', type: 'STOCK' },
+  // Default MFs
+  { id: '1870', name: 'Parag Parikh Flexi Cap Fund Direct Growth', type: 'MF', url: '/mutual-fund/nav/parag-parikh-flexi-cap-fund-direct-growth/1870/' },
+  { id: '1692', name: 'SBI Bluechip Fund Direct Growth', type: 'MF', url: '/mutual-fund/nav/sbi-bluechip-fund-direct-growth/1692/' },
+  { id: '2549', name: 'Nippon India Small Cap Fund Direct Growth', type: 'MF', url: '/mutual-fund/nav/nippon-india-small-cap-fund-direct-growth/2549/' },
+  { id: '2564', name: 'Quant Small Cap Fund Direct Growth', type: 'MF', url: '/mutual-fund/nav/quant-small-cap-fund-direct-growth/2564/' },
+  { id: '1137', name: 'Mirae Asset Large Cap Fund Direct Growth', type: 'MF', url: '/mutual-fund/nav/mirae-asset-large-cap-fund-direct-growth/1137/' },
 ];
 
 const DEFAULT_IGNORED_ITEMS: string[] = [
@@ -133,6 +139,62 @@ const DEFAULT_IGNORED_ITEMS: string[] = [
 ];
 
 const DEFAULT_INDICES = ["NIFTY NEXT 50","NIFTY 50", "NIFTY BANK", "NIFTY IT"];
+export const MAX_TRACKED_STOCKS = 20;
+
+// Helper to inject a toast message into the DOM (UI-less solution)
+const showLimitToast = (count: number) => {
+    // Remove existing toast if present
+    const existing = document.getElementById('tracking-limit-toast');
+    if (existing) existing.remove();
+
+    const div = document.createElement('div');
+    div.id = 'tracking-limit-toast';
+    div.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <span><strong>Limit Reached</strong>: You can track max ${MAX_TRACKED_STOCKS} stocks.</span>
+        </div>
+    `;
+    div.style.cssText = `
+        position: fixed;
+        top: 24px;
+        left: 50%;
+        transform: translateX(-50%) translateY(-20px);
+        background-color: #FEF2F2;
+        color: #991B1B;
+        border: 1px solid #FECACA;
+        padding: 12px 24px;
+        border-radius: 12px;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        z-index: 99999;
+        font-family: 'Inter', system-ui, sans-serif;
+        font-size: 14px;
+        opacity: 0;
+        transition: all 0.3s ease-out;
+        pointer-events: none;
+    `;
+    document.body.appendChild(div);
+    
+    // Trigger reflow
+    void div.offsetWidth; 
+    
+    // Animate In
+    div.style.opacity = '1';
+    div.style.transform = 'translateX(-50%) translateY(0)';
+    
+    // Remove after delay
+    setTimeout(() => {
+        div.style.opacity = '0';
+        div.style.transform = 'translateX(-50%) translateY(-20px)';
+        setTimeout(() => {
+            if(div.parentNode) div.parentNode.removeChild(div);
+        }, 300);
+    }, 4000);
+};
 
 export const getTrackedItems = (): TrackedItem[] => {
   try {
@@ -150,8 +212,21 @@ export const getTrackedItems = (): TrackedItem[] => {
   }
 };
 
-export const addTrackedItem = (item: TrackedItem) => {
+export const addTrackedItem = (item: TrackedItem): boolean => {
   const items = getTrackedItems();
+  
+  if (item.type === 'STOCK') {
+      const stockCount = items.filter(i => i.type === 'STOCK').length;
+      // If adding a new stock (not one that already exists)
+      const exists = items.find(i => i.id === item.id && i.type === 'STOCK');
+      
+      if (!exists && stockCount >= MAX_TRACKED_STOCKS) {
+          // Instead of console.log or alert, inject a nice toast
+          showLimitToast(stockCount);
+          return false;
+      }
+  }
+
   // Prevent duplicates
   if (!items.find(i => i.id === item.id && i.type === item.type)) {
     const newItems = [...items, item];
@@ -159,6 +234,7 @@ export const addTrackedItem = (item: TrackedItem) => {
     // Dispatch event to notify listeners (like Dashboard) to auto-refresh
     window.dispatchEvent(new Event(EVENT_KEY));
   }
+  return true;
 };
 
 export const removeTrackedItem = (id: string, type: EntityType) => {

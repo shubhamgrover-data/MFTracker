@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, PieChart, ArrowRight, Loader2, Building2, Plus, Check, RefreshCw } from 'lucide-react';
 import { searchFundsFromMasterList, reloadFundMasterList } from '../services/dataService';
-import { addTrackedItem, isTracked } from '../services/trackingStorage';
+import { addTrackedItem, removeTrackedItem, isTracked } from '../services/trackingStorage';
 import { FundSearchResult } from '../types';
 
 interface FundSearchProps {
@@ -54,14 +54,18 @@ const FundSearch: React.FC<FundSearchProps> = ({ onSelectFund }) => {
 
   const handleTrack = (e: React.MouseEvent, fund: FundSearchResult) => {
     e.stopPropagation();
-    // Use PK if available, otherwise name as ID
     const id = fund.pk ? String(fund.pk) : fund.name;
-    addTrackedItem({ 
-      id, 
-      name: fund.name, 
-      type: 'MF',
-      url: fund.url 
-    });
+    
+    if (isTracked(id, 'MF')) {
+        removeTrackedItem(id, 'MF');
+    } else {
+        addTrackedItem({ 
+          id, 
+          name: fund.name, 
+          type: 'MF',
+          url: fund.url 
+        });
+    }
     setTick(tick + 1);
   };
 
@@ -89,11 +93,10 @@ const FundSearch: React.FC<FundSearchProps> = ({ onSelectFund }) => {
         onClick={(e) => handleTrack(e, fund)}
         className={`p-2 rounded-lg transition-all ${
            tracked 
-           ? 'bg-green-50 text-green-600 cursor-default' 
+           ? 'bg-green-50 text-green-600 border border-green-100' 
            : 'bg-gray-100 text-gray-400 hover:bg-indigo-600 hover:text-white'
         }`}
-        title={tracked ? "Added to Watchlist" : "Add to Watchlist"}
-        disabled={tracked}
+        title={tracked ? "Remove from Watchlist" : "Add to Watchlist"}
       >
         {tracked ? <Check size={16} /> : <Plus size={16} />}
       </button>
