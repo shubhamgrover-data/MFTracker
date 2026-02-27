@@ -31,6 +31,32 @@ export const getGeminiApiKey = () => {
 
 const GEMINI_MODEL_NAME = "gemini-2.5-flash-lite";
 
+// Fallback function using fetch to bypass potential SDK CORS issues
+async function callGeminiFallback(prompt: string): Promise<string> {
+    const apiKey = getGeminiApiKey();
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_NAME}:generateContent?key=${apiKey}`;
+    
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            contents: [{
+                parts: [{ text: prompt }]
+            }]
+        })
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error?.message || 'Fallback API Request Failed');
+    }
+
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
 // New function to parse HTML for Stock Data
 export const extractStockDataFromHtml = async (html: string): Promise<StockPriceData | null> => {
   try {
@@ -50,29 +76,38 @@ export const extractStockDataFromHtml = async (html: string): Promise<StockPrice
       ${html}
     `;
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL_NAME,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            current_price: { type: Type.STRING },
-            last_updated: { type: Type.STRING },
-            todays_change_direction: { type: Type.STRING },
-            todays_change_number: { type: Type.STRING },
-            todays_change_percentage: { type: Type.STRING },
-            volume: { type: Type.STRING }
-          },
-          required: ['current_price', 'last_updated', 'todays_change_direction', 'todays_change_number', 'todays_change_percentage', 'volume']
-        }
-      },
-    });
+    let text: string | undefined;
 
-    const text = response.text;
+    try {
+        const response = await ai.models.generateContent({
+          model: GEMINI_MODEL_NAME,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                current_price: { type: Type.STRING },
+                last_updated: { type: Type.STRING },
+                todays_change_direction: { type: Type.STRING },
+                todays_change_number: { type: Type.STRING },
+                todays_change_percentage: { type: Type.STRING },
+                volume: { type: Type.STRING }
+              },
+              required: ['current_price', 'last_updated', 'todays_change_direction', 'todays_change_number', 'todays_change_percentage', 'volume']
+            }
+          },
+        });
+        text = response.text;
+    } catch (sdkError) {
+        console.warn("SDK call failed, retrying with fallback...", sdkError);
+        text = await callGeminiFallback(prompt + "\n\nReturn strictly valid JSON.");
+    }
+
     if (!text) return null;
-    return JSON.parse(text) as StockPriceData;
+    // Clean up markdown code blocks if present (fallback might return them)
+    const jsonStr = text.replace(/```json\n?|\n?```/g, '').trim();
+    return JSON.parse(jsonStr) as StockPriceData;
 
   } catch (error: any) {
     if (error.message?.includes('429') || error.status === 'RESOURCE_EXHAUSTED') {
@@ -89,28 +124,36 @@ export const searchFunds = async (query: string): Promise<Array<{ name: string; 
     const prompt = `Identify up to 5 Indian Mutual Funds that match the search query "${query}". 
     Return the result as a strictly formatted JSON array of objects, where each object has "name" (e.g., SBI Bluechip Fund) and "type" (e.g., Large Cap).`;
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL_NAME,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              name: { type: Type.STRING },
-              type: { type: Type.STRING },
-            },
-            required: ['name', 'type'],
-          },
-        },
-      },
-    });
+    let text: string | undefined;
 
-    const text = response.text;
+    try {
+        const response = await ai.models.generateContent({
+          model: GEMINI_MODEL_NAME,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  type: { type: Type.STRING },
+                },
+                required: ['name', 'type'],
+              },
+            },
+          },
+        });
+        text = response.text;
+    } catch (sdkError) {
+        console.warn("SDK call failed, retrying with fallback...", sdkError);
+        text = await callGeminiFallback(prompt + "\n\nReturn strictly valid JSON array.");
+    }
+
     if (!text) return [];
-    return JSON.parse(text);
+    const jsonStr = text.replace(/```json\n?|\n?```/g, '').trim();
+    return JSON.parse(jsonStr);
   } catch (error) {
     console.error("Gemini Fund Search Error:", error);
     return [];
@@ -142,34 +185,42 @@ export const fetchMarketInsights = async (entities: { id: string, name: string }
       - date: ISO date string (use today's date).
     `;
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL_NAME,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              content: { type: Type.STRING },
-              sentiment: { type: Type.STRING },
-              entityId: { type: Type.STRING },
-              source: { type: Type.STRING },
-              sourceUrl: { type: Type.STRING },
-              date: { type: Type.STRING }
-            },
-            required: ['title', 'content', 'sentiment', 'entityId', 'source', 'date']
-          }
-        }
-      }
-    });
+    let text: string | undefined;
 
-    const text = response.text;
+    try {
+        const response = await ai.models.generateContent({
+          model: GEMINI_MODEL_NAME,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  title: { type: Type.STRING },
+                  content: { type: Type.STRING },
+                  sentiment: { type: Type.STRING },
+                  entityId: { type: Type.STRING },
+                  source: { type: Type.STRING },
+                  sourceUrl: { type: Type.STRING },
+                  date: { type: Type.STRING }
+                },
+                required: ['title', 'content', 'sentiment', 'entityId', 'source', 'date']
+              }
+            }
+          }
+        });
+        text = response.text;
+    } catch (sdkError) {
+        console.warn("SDK call failed, retrying with fallback...", sdkError);
+        text = await callGeminiFallback(prompt + "\n\nReturn strictly valid JSON array.");
+    }
+
     if (!text) return [];
     
-    const rawInsights = JSON.parse(text);
+    const jsonStr = text.replace(/```json\n?|\n?```/g, '').trim();
+    const rawInsights = JSON.parse(jsonStr);
     return rawInsights.map((insight: any, index: number) => ({
       ...insight,
       id: `gen-${Date.now()}-${index}`,
@@ -321,7 +372,22 @@ export const getChatResponse = async (history: {role: string, parts: {text: stri
         const result = await chat.sendMessage({ message });
         return result.text;
     } catch (e) {
-        console.error("Chat error", e);
-        return "I'm having trouble connecting to the analysis engine right now (Quota Exceeded or Network Error).";
+        console.warn("Chat SDK error, retrying with fallback", e);
+        try {
+            // Flatten history for fallback
+            const historyText = history.map(h => `${h.role === 'user' ? 'User' : 'Model'}: ${h.parts[0].text}`).join('\n');
+            const prompt = `You are a senior financial assistant. Answer questions based on provided data context.
+            
+            History:
+            ${historyText}
+            
+            User: ${message}
+            Model:`;
+            
+            return await callGeminiFallback(prompt);
+        } catch (fallbackError) {
+             console.error("Chat Fallback error", fallbackError);
+             return "I'm having trouble connecting to the analysis engine right now (Quota Exceeded or Network Error).";
+        }
     }
 }
