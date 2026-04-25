@@ -7,8 +7,8 @@ import { extractMultipleAttributes } from './helper';
 import { INDEX_INSIGHTS_CONFIG } from '../types/constants';
 import * as XLSX from 'xlsx';
 
-const PROXY_BASE_URL = "https://stockmarketdata.linkpc.net/api/extract-data";
-const BULK_API_URL = "https://stockmarketdata.linkpc.net/api/extractinsight";
+const PROXY_BASE_URL = "https://app-to-extract-holdings-stable-aw1bxxufc.vercel.app/api/extract-data";
+const BULK_API_URL = "https://app-to-extract-holdings-stable-aw1bxxufc.vercel.app/api/extractinsight";
 
 export interface ProxyOptions {
   attribute?: string;
